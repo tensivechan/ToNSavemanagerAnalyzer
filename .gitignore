@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 dist/
 .agents/
 .codex/
@@ -7,4 +8,5 @@ outputs/*.exe
 outputs/*.zip
 outputs/*-win-unpacked/
 outputs/*.blockmap
+release-package/
 *.log
