@@ -1,0 +1,19 @@
+{
+  "name": "ton-save-analyzer",
+  "private": true,
+  "version": "1.0.1",
+  "description": "ToNSaveManager analyzer desktop app",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --config electron-builder.config.js --win nsis --publish never",
+    "dist:portable": "electron-builder --config electron-builder.config.js --win portable --publish never",
+    "dist:release": "electron-builder --config electron-builder.config.js --win nsis portable --publish always"
+  },
+  "devDependencies": {
+    "electron": "^32.2.6",
+    "electron-builder": "^25.1.8",
+    "electron-log": "^5.2.4",
+    "electron-updater": "^6.6.2"
+  }
+}

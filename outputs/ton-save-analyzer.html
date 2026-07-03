@@ -1,0 +1,1347 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ToNSaveManager Analyzer</title>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --panel: #ffffff;
+      --ink: #20232a;
+      --muted: #667085;
+      --line: #d8dde5;
+      --accent: #136f63;
+      --accent-2: #b73d36;
+      --accent-3: #375a9e;
+      --soft: #e8f2ef;
+      --warn: #fff0d6;
+      --bad: #ffe2df;
+      --bloodbath: #ffe7e5;
+      --bloodbath-hover: #ffd9d5;
+      --rt-red: #ffe1e1;
+      --rt-red-hover: #ffd2d2;
+      --rt-red-selected: #f5cccc;
+      --rt-green: #e2f2e5;
+      --rt-green-hover: #d3e9d8;
+      --rt-green-selected: #c7dfcd;
+      --rt-gray: #eceff3;
+      --rt-gray-hover: #e1e6ec;
+      --rt-gray-selected: #d8dfe6;
+      --rt-cyan: #e0f6ff;
+      --rt-cyan-hover: #d2effb;
+      --rt-cyan-selected: #c5e7f6;
+      --rt-blue: #e3efff;
+      --rt-blue-hover: #d5e6ff;
+      --rt-blue-selected: #cadcff;
+      --rt-bloodmoon: #f5d2d2;
+      --rt-bloodmoon-hover: #ecc1c1;
+      --rt-bloodmoon-selected: #e0b5b5;
+      --rt-yellow: #fff0bf;
+      --rt-yellow-hover: #ffe8a6;
+      --rt-yellow-selected: #f3da93;
+      --rt-amber: #ffe0a6;
+      --rt-amber-hover: #ffd38a;
+      --rt-amber-selected: #f3c677;
+      --rt-sun: #e6f0bf;
+      --rt-sun-hover: #dae7a4;
+      --rt-sun-selected: #cfdb92;
+      --rt-midnight: #d7b2b2;
+      --rt-midnight-hover: #c79c9c;
+      --rt-midnight-selected: #b98a8a;
+      --rt-brown: #e7d2bb;
+      --rt-brown-hover: #dcc1a0;
+      --rt-brown-selected: #cfb28b;
+      --rt-purple: #e6daf4;
+      --rt-purple-hover: #d7c5eb;
+      --rt-purple-selected: #cab7de;
+      --rt-gigabyte-blue: #d8e9ff;
+      --rt-gigabyte-red: #ffe0e0;
+      --shadow: 0 8px 22px rgba(32, 35, 42, .08);
+      color-scheme: light;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(19, 111, 99, .08), transparent 260px),
+        var(--bg);
+      color: var(--ink);
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 7px;
+      padding: 8px 11px;
+      min-height: 36px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: #aeb7c4; }
+    button:disabled { color: #a2a9b5; cursor: not-allowed; }
+
+    .primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .ghost {
+      background: transparent;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    header {
+      padding: 22px clamp(16px, 3vw, 32px) 14px;
+      display: grid;
+      gap: 14px;
+      border-bottom: 1px solid rgba(216, 221, 229, .7);
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.1;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 14px;
+      min-height: 20px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.1fr) minmax(180px, .8fr) auto auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .drop {
+      border: 1px dashed #aeb7c4;
+      border-radius: 8px;
+      background: rgba(255,255,255,.72);
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .drop.dragover {
+      border-color: var(--accent);
+      background: var(--soft);
+    }
+
+    .file-name {
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
+    input[type="file"] { display: none; }
+
+    .field {
+      position: relative;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 7px;
+      min-height: 40px;
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(19, 111, 99, .13);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric {
+      background: rgba(255,255,255,.76);
+      padding: 14px clamp(10px, 2vw, 18px);
+      min-width: 0;
+    }
+
+    .metric b {
+      display: block;
+      font-size: clamp(20px, 2.6vw, 28px);
+      line-height: 1.1;
+      overflow-wrap: anywhere;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+      gap: 16px;
+      padding: 16px clamp(16px, 3vw, 32px) 28px;
+      min-height: 0;
+    }
+
+    .section {
+      background: rgba(255,255,255,.8);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.78);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 270px);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #fbfaf7;
+      z-index: 1;
+      color: #465060;
+      font-size: 12px;
+    }
+
+    tr {
+      cursor: pointer;
+    }
+
+    tr:hover td {
+      background: #f8fbfa;
+    }
+
+    tr.selected td {
+      background: var(--soft);
+    }
+
+    tr.bloodbath-row td {
+      background: var(--bloodbath);
+    }
+
+    tr.bloodbath-row:hover td {
+      background: var(--bloodbath-hover);
+    }
+
+    tr.bloodbath-row.selected td {
+      background: #f2d9d7;
+    }
+
+    tr.rt-red-row td {
+      background: var(--rt-red);
+    }
+
+    tr.rt-red-row:hover td {
+      background: var(--rt-red-hover);
+    }
+
+    tr.rt-red-row.selected td {
+      background: var(--rt-red-selected);
+    }
+
+    tr.rt-green-row td {
+      background: var(--rt-green);
+    }
+
+    tr.rt-green-row:hover td {
+      background: var(--rt-green-hover);
+    }
+
+    tr.rt-green-row.selected td {
+      background: var(--rt-green-selected);
+    }
+
+    tr.rt-gray-row td {
+      background: var(--rt-gray);
+    }
+
+    tr.rt-gray-row:hover td {
+      background: var(--rt-gray-hover);
+    }
+
+    tr.rt-gray-row.selected td {
+      background: var(--rt-gray-selected);
+    }
+
+    tr.rt-cyan-row td {
+      background: var(--rt-cyan);
+    }
+
+    tr.rt-cyan-row:hover td {
+      background: var(--rt-cyan-hover);
+    }
+
+    tr.rt-cyan-row.selected td {
+      background: var(--rt-cyan-selected);
+    }
+
+    tr.rt-blue-row td {
+      background: var(--rt-blue);
+    }
+
+    tr.rt-blue-row:hover td {
+      background: var(--rt-blue-hover);
+    }
+
+    tr.rt-blue-row.selected td {
+      background: var(--rt-blue-selected);
+    }
+
+    tr.rt-bloodmoon-row td {
+      background: var(--rt-bloodmoon);
+    }
+
+    tr.rt-bloodmoon-row:hover td {
+      background: var(--rt-bloodmoon-hover);
+    }
+
+    tr.rt-bloodmoon-row.selected td {
+      background: var(--rt-bloodmoon-selected);
+    }
+
+    tr.rt-yellow-row td {
+      background: var(--rt-yellow);
+    }
+
+    tr.rt-yellow-row:hover td {
+      background: var(--rt-yellow-hover);
+    }
+
+    tr.rt-yellow-row.selected td {
+      background: var(--rt-yellow-selected);
+    }
+
+    tr.rt-amber-row td {
+      background: var(--rt-amber);
+    }
+
+    tr.rt-amber-row:hover td {
+      background: var(--rt-amber-hover);
+    }
+
+    tr.rt-amber-row.selected td {
+      background: var(--rt-amber-selected);
+    }
+
+    tr.rt-sun-row td {
+      background: var(--rt-sun);
+    }
+
+    tr.rt-sun-row:hover td {
+      background: var(--rt-sun-hover);
+    }
+
+    tr.rt-sun-row.selected td {
+      background: var(--rt-sun-selected);
+    }
+
+    tr.rt-midnight-row td {
+      background: var(--rt-midnight);
+    }
+
+    tr.rt-midnight-row:hover td {
+      background: var(--rt-midnight-hover);
+    }
+
+    tr.rt-midnight-row.selected td {
+      background: var(--rt-midnight-selected);
+    }
+
+    tr.rt-brown-row td {
+      background: var(--rt-brown);
+    }
+
+    tr.rt-brown-row:hover td {
+      background: var(--rt-brown-hover);
+    }
+
+    tr.rt-brown-row.selected td {
+      background: var(--rt-brown-selected);
+    }
+
+    tr.rt-purple-row td {
+      background: var(--rt-purple);
+    }
+
+    tr.rt-purple-row:hover td {
+      background: var(--rt-purple-hover);
+    }
+
+    tr.rt-purple-row.selected td {
+      background: var(--rt-purple-selected);
+    }
+
+    tr.rt-gigabyte-row td {
+      background: linear-gradient(90deg, var(--rt-gigabyte-blue), var(--rt-gigabyte-red));
+    }
+
+    tr.rt-gigabyte-row:hover td {
+      background: linear-gradient(90deg, #cfe1ff, #ffd4d4);
+    }
+
+    tr.rt-gigabyte-row.selected td {
+      background: linear-gradient(90deg, #c6d9f6, #f4c8c8);
+    }
+
+    td.warn-cell {
+      background: var(--warn);
+      color: #7b4c00;
+      font-weight: 600;
+    }
+
+    .note {
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: var(--soft);
+      color: #0f554d;
+      border: 1px solid rgba(19, 111, 99, .18);
+      font-size: 12px;
+    }
+
+    .badge.win { background: #e8f2ef; color: #0f554d; }
+    .badge.loss { background: var(--bad); color: #8d211b; border-color: #f4bbb6; }
+    .badge.warn { background: var(--warn); color: #7b4c00; border-color: #f1d097; }
+
+    .detail {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .detail-body {
+      padding: 12px;
+      overflow: auto;
+      max-height: calc(100vh - 270px);
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 116px minmax(0, 1fr);
+      gap: 1px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      background: var(--line);
+    }
+
+    .kv div {
+      background: var(--panel);
+      padding: 8px 10px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .kv .k {
+      color: var(--muted);
+      background: #fbfaf7;
+      font-size: 12px;
+    }
+
+    .players {
+      display: grid;
+      gap: 6px;
+      margin: 0 0 12px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .players li {
+      background: #fbfaf7;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 7px 9px;
+      overflow-wrap: anywhere;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #101418;
+      color: #e7edf4;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .empty {
+      padding: 36px 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 980px) {
+      .toolbar {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .toolbar .drop {
+        grid-column: 1 / -1;
+      }
+
+      .stats {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      th, td {
+        padding: 8px;
+      }
+
+      .table-wrap,
+      .detail-body {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="titlebar">
+        <div>
+          <h1>ToNSaveManager Analyzer</h1>
+          <div class="status" id="status">JSONを選択</div>
+        </div>
+        <button class="ghost" id="clearBtn" disabled title="クリア">⌫</button>
+      </div>
+
+      <div class="toolbar">
+        <label class="drop" id="dropZone">
+          <input type="file" id="fileInput" accept=".json,application/json" multiple>
+          <button class="primary" type="button" id="pickBtn">📂</button>
+          <span class="file-name" id="fileName">ファイル未選択</span>
+        </label>
+        <div class="field">
+          <input id="searchInput" placeholder="検索" autocomplete="off">
+        </div>
+        <div class="field">
+          <select id="roundTypeFilter" title="RoundType">
+            <option value="all">全RoundType</option>
+          </select>
+        </div>
+        <div class="field">
+          <select id="sortFilter" title="Sort">
+            <option value="raw">元データのまま</option>
+            <option value="terror">テラーID順</option>
+            <option value="map">mapid順</option>
+          </select>
+        </div>
+        <label class="field" style="display:flex;align-items:center;gap:8px;padding:0 10px;">
+          <input type="checkbox" id="hideBlankToggle" checked>
+          <span>Hide (blank)</span>
+        </label>
+        <button id="exportCsvBtn" disabled title="CSV">CSV</button>
+        <button id="exportJsonBtn" disabled title="JSON">JSON</button>
+      </div>
+    </header>
+
+    <section class="stats" aria-label="summary">
+      <div class="metric"><b id="mRecords">0</b><span>Records</span></div>
+      <div class="metric"><b id="mPlayers">0</b><span>Players</span></div>
+      <div class="metric"><b id="mMaps">0</b><span>Maps</span></div>
+      <div class="metric"><b id="mTerrors">0</b><span>Terrors</span></div>
+      <div class="metric"><b id="mWins">0</b><span>Wins</span></div>
+    </section>
+
+    <main>
+      <section class="section">
+        <div class="section-head">
+          <h2>Records</h2>
+          <span class="badge" id="visibleCount">0</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Terror Name</th>
+                <th>Time</th>
+                <th>File</th>
+                <th>RoundType</th>
+                <th>MapID</th>
+                <th>TerrorID</th>
+                <th>Player Count</th>
+              </tr>
+            </thead>
+            <tbody id="recordsBody"></tbody>
+          </table>
+          <div class="empty" id="emptyState">データなし</div>
+        </div>
+      </section>
+
+      <section class="section detail">
+        <div class="section-head">
+          <h2>Detail</h2>
+          <span class="badge warn" id="detailBadge">未選択</span>
+        </div>
+        <div class="detail-body" id="detailBody">
+          <div class="empty">レコードを選択</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const knownTerrors = new Map([
+      [0, "The Meatball Man / Huggy"], [2, "Demented Spongebob"], [4, "HER"],
+      [9, "Toren's Shadow / MR MEGA"], [13, "Angry Munci / Specimen 5"],
+      [29, "Fusion Pilot / Karol_Corpse"], [37, "Something Wicked"],
+      [50, "Don't Touch Me"], [79, "Waterwraith"], [90, "Tricky"],
+      [96, "Those Olden Days"], [131, "Waldo"]
+    ]);
+
+    const mapNames = new Map([
+      [0, "Warehouse"],
+      [1, "Sewers"],
+      [2, "Construct"],
+      [3, "Neon Towers(Purple)"],
+      [4, "Innyume"],
+      [5, "Secret"],
+      [6, "Backrooms"],
+      [7, "The Fishbowl"],
+      [8, "Forest"],
+      [9, "Experimentation"],
+      [10, "Playplace"],
+      [11, "Sanctum"],
+      [12, "Seabase"],
+      [13, "Astral"],
+      [14, "Pizzeria"],
+      [15, "Isolation"],
+      [16, "Hell"],
+      [17, "Schoolhouse"],
+      [18, "Ancient"],
+      [19, "Throne"],
+      [20, "Neon Tower(Green)"],
+      [21, "Car Park"],
+      [22, "Blackspace"],
+      [23, "Museum"],
+      [24, "Inner Tower"],
+      [25, "Pools"],
+      [26, "TBH"],
+      [27, "Development"],
+      [28, "Hotel"],
+      [29, "Elevator"],
+      [30, "Hole"],
+      [31, "Iteration_0"],
+      [32, "Scrapyard"],
+      [33, "Robland"],
+      [34, "Baseplate"],
+      [35, "Challenge Cube"],
+      [36, "Have"],
+      [37, "Gardens"],
+      [38, "Dust"],
+      [39, "Dots"],
+      [40, "Engine"],
+      [41, "Orange"],
+      [42, "The Wall"],
+      [43, "Nexus"],
+      [44, "Space Colony"],
+      [45, "Alter"],
+      [46, "Desktop"],
+      [47, "Slashco HQ"],
+      [48, "Harvest"],
+      [49, "Heaven"],
+      [50, "Hightower"],
+      [51, "Lounge"],
+      [52, "Mall"],
+      [53, "Skyscraper"],
+      [54, "Nightlife"],
+      [55, "Snowfield"],
+      [56, "Gaol"],
+      [57, "Mineshaft"],
+      [58, "Chess"],
+      [59, "Cheese Maze"],
+      [60, "Wafflehouse"],
+      [61, "Tunnels"],
+      [62, "Subway"],
+      [63, "Supply Route"],
+      [64, "Vents"],
+      [65, "Escape Route"],
+      [66, "Garten"],
+      [67, "Black Forest"],
+      [68, "This Map Does Not Exist"],
+      [69, "Luna Hills"],
+      [70, "Park"],
+      [71, "Hub"],
+      [72, "Spaceless"]
+    ]);
+
+    const roundTypes = new Map([
+      [1, "クラシック"],
+      [2, "霧"],
+      [3, "パニッシュ"],
+      [4, "サボタージュ"],
+      [5, "狂気"],
+      [6, "ブラッドバス"],
+      [7, "ダブルトラブル"],
+      [8, "EX"],
+      [9, "ゴースト"],
+      [10, "アンバウンド"],
+      [11, "ランダマイザー"],
+      [12, "クラシック.exe"],
+      [50, "ミッドナイト"],
+      [51, "オルタネイト"],
+      [52, "霧オルタネイト"],
+      [53, "ゴーストオルタネイト"],
+      [100, "ミスティックムーン"],
+      [101, "ブラッドムーン"],
+      [102, "トワイライトムーン"],
+      [103, "ソルスティス"],
+      [104, "走れ！"],
+      [105, "8ページ"],
+      [106, "GIGABYTE"],
+      [107, "Rift Monsters"]
+    ]);
+
+    const state = {
+      fileNames: [],
+      records: [],
+      filtered: [],
+      selectedKey: ""
+    };
+
+    const els = {
+      fileInput: document.getElementById("fileInput"),
+      pickBtn: document.getElementById("pickBtn"),
+      dropZone: document.getElementById("dropZone"),
+      fileName: document.getElementById("fileName"),
+      status: document.getElementById("status"),
+      searchInput: document.getElementById("searchInput"),
+      roundTypeFilter: document.getElementById("roundTypeFilter"),
+      sortFilter: document.getElementById("sortFilter"),
+      hideBlankToggle: document.getElementById("hideBlankToggle"),
+      exportCsvBtn: document.getElementById("exportCsvBtn"),
+      exportJsonBtn: document.getElementById("exportJsonBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      recordsBody: document.getElementById("recordsBody"),
+      emptyState: document.getElementById("emptyState"),
+      visibleCount: document.getElementById("visibleCount"),
+      detailBody: document.getElementById("detailBody"),
+      detailBadge: document.getElementById("detailBadge"),
+      mRecords: document.getElementById("mRecords"),
+      mPlayers: document.getElementById("mPlayers"),
+      mMaps: document.getElementById("mMaps"),
+      mTerrors: document.getElementById("mTerrors"),
+      mWins: document.getElementById("mWins")
+    };
+
+    els.pickBtn.addEventListener("click", () => els.fileInput.click());
+    els.fileInput.addEventListener("change", () => {
+      const files = Array.from(els.fileInput.files || []);
+      if (files.length) readFiles(files);
+    });
+
+    ["dragenter", "dragover"].forEach(name => {
+      els.dropZone.addEventListener(name, event => {
+        event.preventDefault();
+        els.dropZone.classList.add("dragover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(name => {
+      els.dropZone.addEventListener(name, event => {
+        event.preventDefault();
+        els.dropZone.classList.remove("dragover");
+      });
+    });
+
+    els.dropZone.addEventListener("drop", event => {
+      const files = Array.from(event.dataTransfer.files || []);
+      if (files.length) readFiles(files);
+    });
+
+    els.searchInput.addEventListener("input", applyFilters);
+    els.roundTypeFilter.addEventListener("change", applyFilters);
+    els.sortFilter.addEventListener("change", applyFilters);
+    els.hideBlankToggle.addEventListener("change", applyFilters);
+    els.exportCsvBtn.addEventListener("click", exportCsv);
+    els.exportJsonBtn.addEventListener("click", exportJson);
+    els.clearBtn.addEventListener("click", reset);
+
+    async function readFiles(files) {
+      const settled = await Promise.allSettled(files.map(readFile));
+      const rows = [];
+      const errors = [];
+      settled.forEach((item, fileIndex) => {
+        if (item.status === "fulfilled") {
+          rows.push(...item.value.map((row, rowIndex) => normalizeRecord(row, rowIndex, files[fileIndex].name, fileIndex)));
+        } else {
+          errors.push(`${files[fileIndex].name}: ${item.reason && item.reason.message ? item.reason.message : "解析失敗"}`);
+        }
+      });
+      if (!rows.length) {
+        els.status.textContent = errors.length ? errors.join(" / ") : "解析対象のJSONが見つかりません";
+        state.records = [];
+        state.filtered = [];
+        render();
+        setEnabled(false);
+        return;
+      }
+      state.fileNames = files.map(file => file.name);
+      state.records = rows;
+      refreshRoundTypeOptions();
+      state.selectedKey = rows[0].recordKey;
+      els.fileName.textContent = files.length === 1 ? files[0].name : `${files.length} files`;
+      els.status.textContent = errors.length ? `${rows.length}件を解析 / ${errors.length}件スキップ` : `${rows.length}件を解析`;
+      setEnabled(true);
+      updateStats();
+      applyFilters();
+    }
+
+    function readFile(file) {
+      return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const text = stripBom(String(reader.result || ""));
+          const parsed = JSON.parse(text);
+          const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.Collection) ? parsed.Collection : []);
+          if (!rows.length) throw new Error("配列形式の保存データが見つかりません");
+          resolve(rows);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error("ファイルを読み込めませんでした"));
+      reader.readAsText(file, "utf-8");
+      });
+    }
+
+    function stripBom(text) {
+      return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    }
+
+    function normalizeRecord(row, index, sourceFile, sourceFileIndex) {
+      const players = parsePlayers(row.Players);
+      const td = Array.isArray(row.TD) ? row.TD : [];
+      const terrorNames = td.map(item => {
+        const id = Number(item && item.i);
+        const name = knownTerrors.get(id);
+        return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
+      }).filter(Boolean);
+      const content = typeof row.Content === "string" ? row.Content : "";
+      const recordKey = `${sourceFileIndex}:${index}`;
+        return {
+          recordKey,
+          sourceIndex: index,
+          sourceFileIndex,
+          sourceFile,
+          note: value(row.Note),
+        timestamp: value(row.Timestamp),
+        mapId: numberOrNull(row.MapID),
+        rawRoundType: numberOrNull(row.RT),
+        roundType: inferRoundType(numberOrNull(row.RT), td.length),
+        roundTypeExtra: row.RType ?? null,
+        playerCount: numberOrNull(row.pc),
+        players,
+        terrorData: td,
+        terrorLabels: terrorNames,
+        terrorCount: td.length,
+        expectedTerrorCount: expectedTerrorCount(inferRoundType(numberOrNull(row.RT), td.length)),
+        terrorComposition: terrorComposition(inferRoundType(numberOrNull(row.RT), td.length), td),
+        result: numberOrNull(row.RResult),
+        errors: row.RTerrors,
+        content,
+        contentLength: content.length,
+        raw: row
+      };
+    }
+
+    function parsePlayers(playersText) {
+      if (typeof playersText !== "string" || !playersText.trim()) return [];
+      return playersText
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*-\s*/, "").trim())
+        .filter(Boolean);
+    }
+
+    function value(input) {
+      return input === null || input === undefined ? "" : String(input);
+    }
+
+    function numberOrNull(input) {
+      const n = Number(input);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function sortRecords(records) {
+      const sortMode = els.sortFilter.value;
+      const compareSourceOrder = (a, b) => (a.sourceFileIndex - b.sourceFileIndex) || (a.sourceIndex - b.sourceIndex);
+      const terrorKey = record => {
+        const ids = record.terrorData
+          .map(item => Number(item && item.i))
+          .filter(Number.isFinite);
+        return ids.length ? ids : [Number.POSITIVE_INFINITY];
+      };
+      const compareArrays = (left, right) => {
+        const max = Math.max(left.length, right.length);
+        for (let i = 0; i < max; i += 1) {
+          const a = left[i] ?? Number.POSITIVE_INFINITY;
+          const b = right[i] ?? Number.POSITIVE_INFINITY;
+          if (a !== b) return a - b;
+        }
+        return 0;
+      };
+
+      return [...records].sort((a, b) => {
+        if (sortMode === "raw") {
+          return compareSourceOrder(a, b);
+        }
+        if (sortMode === "terror") {
+          return compareArrays(terrorKey(a), terrorKey(b)) || compareSourceOrder(a, b);
+        }
+        if (sortMode === "map") {
+          const aMap = a.mapId === null ? Number.POSITIVE_INFINITY : a.mapId;
+          const bMap = b.mapId === null ? Number.POSITIVE_INFINITY : b.mapId;
+          const mapDiff = aMap - bMap;
+          if (mapDiff) return mapDiff;
+          return compareArrays(terrorKey(a), terrorKey(b)) || compareSourceOrder(a, b);
+        }
+        return compareSourceOrder(a, b);
+      });
+    }
+
+    function applyFilters() {
+      const q = els.searchInput.value.trim().toLowerCase();
+      const roundType = els.roundTypeFilter.value;
+      const hideBlank = els.hideBlankToggle.checked;
+      state.filtered = state.records.filter(record => {
+        if (hideBlank && !record.note.trim()) return false;
+        if (roundType !== "all" && String(record.roundType) !== roundType) return false;
+        const blob = [
+          record.note,
+          record.timestamp,
+          record.sourceFile,
+          record.mapId,
+          record.roundType,
+          record.playerCount,
+          record.players.join(" "),
+          record.terrorLabels.join(" ")
+        ].join(" ").toLowerCase();
+        const matchesSearch = !q || blob.includes(q);
+        return matchesSearch;
+      });
+      state.filtered = sortRecords(state.filtered);
+      if (!state.filtered.some(r => r.recordKey === state.selectedKey)) {
+        state.selectedKey = state.filtered[0] ? state.filtered[0].recordKey : "";
+      }
+      render();
+    }
+
+    function refreshRoundTypeOptions() {
+      const previous = els.roundTypeFilter.value || "all";
+      const values = [...new Set(state.records.map(record => record.roundType).filter(value => value !== null && value !== undefined))].sort((a, b) => a - b);
+      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option>' + values.map(value => {
+        const label = escapeHtml(formatRoundType(value));
+        return `<option value="${String(value)}">${label}</option>`;
+      }).join("");
+      if ([...els.roundTypeFilter.options].some(option => option.value === previous)) {
+        els.roundTypeFilter.value = previous;
+      } else {
+        els.roundTypeFilter.value = "all";
+      }
+    }
+
+    function updateStats() {
+      const players = new Set();
+      const maps = new Set();
+      const terrors = new Set();
+      let wins = 0;
+      for (const record of state.records) {
+        record.players.forEach(p => players.add(p));
+        if (record.mapId !== null) maps.add(record.mapId);
+        record.terrorData.forEach(item => {
+          if (item && item.i !== undefined) terrors.add(Number(item.i));
+        });
+        if (record.result === 1) wins += 1;
+      }
+      els.mRecords.textContent = formatNumber(state.records.length);
+      els.mPlayers.textContent = formatNumber(players.size);
+      els.mMaps.textContent = formatNumber(maps.size);
+      els.mTerrors.textContent = formatNumber(terrors.size);
+      els.mWins.textContent = formatNumber(wins);
+    }
+
+    function render() {
+      els.recordsBody.innerHTML = "";
+      els.visibleCount.textContent = formatNumber(state.filtered.length);
+      els.emptyState.classList.toggle("hidden", state.filtered.length > 0);
+      for (const record of state.filtered) {
+        const tr = document.createElement("tr");
+        tr.className = [
+          record.recordKey === state.selectedKey ? "selected" : "",
+          isBloodbathRow(record) ? "bloodbath-row" : "",
+          roundTypeRowClass(record)
+        ].filter(Boolean).join(" ");
+        tr.addEventListener("click", () => {
+          state.selectedKey = record.recordKey;
+          render();
+        });
+        tr.innerHTML = [
+          td(record.sourceIndex + 1),
+          td(record.note || "(blank)", "note"),
+          td(formatTime(record.timestamp)),
+          td(record.sourceFile || ""),
+          td(formatRoundType(record.roundType)),
+          td(formatMapLabel(record.mapId)),
+          td(formatTerrorIds(record.terrorData), terrorCellClass(record)),
+          td(record.playerCount ?? record.players.length)
+        ].join("");
+        els.recordsBody.appendChild(tr);
+      }
+      renderDetail();
+    }
+
+    function renderDetail() {
+      const record = state.records.find(r => r.recordKey === state.selectedKey);
+      if (!record) {
+        els.detailBadge.textContent = "未選択";
+        els.detailBody.innerHTML = `<div class="empty">レコードを選択</div>`;
+        return;
+      }
+      els.detailBadge.textContent = `#${record.sourceIndex + 1}`;
+      const players = record.players.length
+        ? `<ul class="players">${record.players.map(p => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`
+        : `<div class="empty">Playersなし</div>`;
+      els.detailBody.innerHTML = `
+        <div class="kv">
+          <div class="k">Terror Name</div><div>${escapeHtml(record.note || "(blank)")}</div>
+          <div class="k">Timestamp</div><div>${escapeHtml(record.timestamp)}</div>
+          <div class="k">File</div><div>${escapeHtml(record.sourceFile || "")}</div>
+          <div class="k">MapID</div><div>${record.mapId ?? ""}</div>
+          <div class="k">Map Name</div><div>${escapeHtml(formatMapLabel(record.mapId))}</div>
+          <div class="k">RoundType</div><div>${escapeHtml(formatRoundType(record.roundType))}</div>
+          <div class="k">RType</div><div>${escapeHtml(record.roundTypeExtra ?? "")}</div>
+          <div class="k">TerrorID</div><div>${escapeHtml(formatTerrorIds(record.terrorData))}</div>
+          <div class="k">内訳</div><div>${escapeHtml(record.terrorComposition || "")}</div>
+          <div class="k">Player Count</div><div>${record.playerCount ?? ""}</div>
+          <div class="k">RTerrors</div><div>${escapeHtml(record.errors ?? "")}</div>
+        </div>
+        <h2>Players</h2>
+        ${players}
+        <h2>TD</h2>
+        <div class="kv">
+          <div class="k">番号</div><div>${escapeHtml(formatTerrorIds(record.terrorData))}</div>
+        </div>
+      `;
+    }
+
+    function td(value, className = "") {
+      return `<td class="${className}">${escapeHtml(String(value))}</td>`;
+    }
+
+    function tdRaw(value, className = "") {
+      return `<td class="${className}">${value}</td>`;
+    }
+
+    function formatRoundType(rt) {
+      if (rt === null || rt === undefined) return "";
+      const name = roundTypes.get(Number(rt));
+      return name ? `${rt}: ${name}` : String(rt);
+    }
+
+    function formatMapLabel(mapId) {
+      if (mapId === null || mapId === undefined) return "";
+      const name = mapNames.get(Number(mapId));
+      return name ? `${mapId}: ${name}` : String(mapId);
+    }
+
+    function inferRoundType(rt, terrorCount) {
+      if (rt === 6 && terrorCount === 1) return 8;
+      return rt;
+    }
+
+    function expectedTerrorCount(rt) {
+      if (rt === 8) return 1;
+      if (rt === 6 || rt === 50) return 3;
+      return null;
+    }
+
+    function formatTerrors(record) {
+      const labels = formatTerrorIds(record.terrorData);
+      if (!record.expectedTerrorCount) return labels;
+      const count = record.terrorCount;
+      const status = count === record.expectedTerrorCount ? `${count}体` : `${count}/${record.expectedTerrorCount}体`;
+      return labels ? `${status} - ${labels}` : status;
+    }
+
+    function terrorComposition(rt, td) {
+      if (!Array.isArray(td) || rt !== 50) return "";
+      const alternate = td.filter(item => item && item.g !== undefined && item.g !== null).length;
+      const classic = td.length - alternate;
+      return `クラシック${classic}体 / オルタネイト${alternate}体`;
+    }
+
+    function terrorCellClass(record) {
+      if (record.expectedTerrorCount && record.terrorCount !== record.expectedTerrorCount) return "warn-cell";
+      if (record.roundType === 50 && !isMidnightComposition(record.terrorData)) return "warn-cell";
+      return "";
+    }
+
+    function roundTypeRowClass(record) {
+      const rt = record.roundType;
+      const extra = String(record.roundTypeExtra ?? "").toUpperCase();
+      if (rt === 7 || extra.includes("LVL2")) return "rt-red-row";
+      if (rt === 8) return "rt-red-row";
+      if (rt === 4 || rt === 12) return "rt-green-row";
+      if (rt === 2 || rt === 52) return "rt-gray-row";
+      if (rt === 9 || rt === 53) return "rt-cyan-row";
+      if (rt === 100) return "rt-blue-row";
+      if (rt === 101) return "rt-bloodmoon-row";
+      if (rt === 102) return "rt-yellow-row";
+      if (rt === 3 || rt === 11) return "rt-amber-row";
+      if (rt === 103) return "rt-sun-row";
+      if (rt === 5) return "rt-purple-row";
+      if (rt === 50) return "rt-midnight-row";
+      if (rt === 104) return "rt-brown-row";
+      if (rt === 106) return "rt-gigabyte-row";
+      return "";
+    }
+
+    function isBloodbathRow(record) {
+      return record.rawRoundType === 6 && record.roundType === 6;
+    }
+
+    function isMidnightComposition(td) {
+      if (!Array.isArray(td) || td.length !== 3) return false;
+      const alternate = td.filter(item => item && item.g !== undefined && item.g !== null).length;
+      return alternate === 1;
+    }
+
+    function summarizeTd(tdArray) {
+      if (!Array.isArray(tdArray) || !tdArray.length) return "";
+      return tdArray.map(item => {
+        if (!item || typeof item !== "object") return "";
+        return item.i !== undefined ? String(item.i) : "";
+      }).filter(Boolean).join(", ");
+    }
+
+    function formatTerrorIds(tdArray) {
+      return summarizeTd(tdArray);
+    }
+
+    function formatTime(input) {
+      if (!input) return "";
+      const date = new Date(input);
+      if (Number.isNaN(date.getTime())) return input;
+      return input.replace("T", " ");
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("ja-JP").format(value || 0);
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function exportCsv() {
+      const rows = state.filtered.map(record => ({
+        index: record.sourceIndex + 1,
+        note: record.note,
+        timestamp: record.timestamp,
+        mapId: record.mapId,
+        roundType: record.roundType,
+        roundTypeName: roundTypes.get(Number(record.roundType)) || "",
+        terrorCount: record.terrorCount,
+        expectedTerrorCount: record.expectedTerrorCount,
+        terrorComposition: record.terrorComposition,
+        td: summarizeTd(record.terrorData),
+        pc: record.playerCount,
+        players: record.players.join("; "),
+        rawRoundType: record.rawRoundType,
+        contentLength: record.contentLength
+      }));
+      const headers = Object.keys(rows[0] || {});
+      const csv = [
+        headers.join(","),
+        ...rows.map(row => headers.map(header => csvCell(row[header])).join(","))
+      ].join("\\r\\n");
+      download(`${baseName()}-analysis.csv`, csv, "text/csv;charset=utf-8");
+    }
+
+    function exportJson() {
+      const rows = state.filtered.map(record => ({
+        index: record.sourceIndex + 1,
+        note: record.note,
+        timestamp: record.timestamp,
+        mapId: record.mapId,
+        roundType: record.roundType,
+        roundTypeName: roundTypes.get(Number(record.roundType)) || "",
+        terrorCount: record.terrorCount,
+        expectedTerrorCount: record.expectedTerrorCount,
+        terrorComposition: record.terrorComposition,
+        rType: record.roundTypeExtra,
+        pc: record.playerCount,
+        players: record.players,
+        td: record.terrorData,
+        rawRoundType: record.rawRoundType,
+        rtErrors: record.errors,
+        contentLength: record.contentLength,
+        contentPreview: record.content.slice(0, 500)
+      }));
+      download(`${baseName()}-analysis.json`, JSON.stringify(rows, null, 2), "application/json;charset=utf-8");
+    }
+
+    function csvCell(value) {
+      const text = value === null || value === undefined ? "" : String(value);
+      return `"${text.replaceAll('"', '""')}"`;
+    }
+
+    function download(name, content, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function baseName() {
+      return (state.fileName || "ton-save").replace(/\\.json$/i, "").replace(/[\\\\/:*?"<>|]+/g, "_");
+    }
+
+    function setEnabled(enabled) {
+      els.exportCsvBtn.disabled = !enabled;
+      els.exportJsonBtn.disabled = !enabled;
+      els.clearBtn.disabled = !enabled;
+    }
+
+    function reset() {
+      state.fileNames = [];
+      state.records = [];
+      state.filtered = [];
+      state.selectedKey = "";
+      els.fileInput.value = "";
+      els.fileName.textContent = "ファイル未選択";
+      els.status.textContent = "JSONを選択";
+      els.searchInput.value = "";
+      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option>';
+      els.roundTypeFilter.value = "all";
+      els.sortFilter.value = "raw";
+      els.hideBlankToggle.checked = true;
+      setEnabled(false);
+      updateStats();
+      render();
+    }
+
+    reset();
+  </script>
+</body>
+</html>

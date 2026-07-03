@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.agents/
+.codex/
+work/
+outputs/*.exe
+outputs/*.zip
+outputs/*-win-unpacked/
+outputs/*.blockmap
+*.log
