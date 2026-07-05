@@ -645,7 +645,7 @@
 
     <section class="stats" aria-label="summary">
       <div class="metric"><b id="mRecords">0</b><span>Records</span></div>
-      <div class="metric"><b id="mPlayers">0</b><span>Players</span></div>
+      
       <div class="metric"><b id="mMaps">0</b><span>Maps</span></div>
       <div class="metric"><b id="mTerrors">0</b><span>Terrors</span></div>
       <div class="metric"><b id="mWins">0</b><span>Wins</span></div>
@@ -801,6 +801,12 @@
       [107, "Rift Monsters"]
     ]);
 
+    const classicSpecialNames = new Set([
+      "hungry home invader",
+      "atrached",
+      "wild yet bloodthirsty creature"
+    ]);
+
     const state = {
       fileNames: [],
       records: [],
@@ -827,7 +833,6 @@
       detailBody: document.getElementById("detailBody"),
       detailBadge: document.getElementById("detailBadge"),
       mRecords: document.getElementById("mRecords"),
-      mPlayers: document.getElementById("mPlayers"),
       mMaps: document.getElementById("mMaps"),
       mTerrors: document.getElementById("mTerrors"),
       mWins: document.getElementById("mWins")
@@ -1015,7 +1020,12 @@
       const hideBlank = els.hideBlankToggle.checked;
       state.filtered = state.records.filter(record => {
         if (hideBlank && !record.note.trim()) return false;
-        if (roundType !== "all" && String(record.roundType) !== roundType) return false;
+        const noteKey = record.note.trim().toLowerCase();
+        if (roundType === "classicSpecial") {
+          if (!classicSpecialNames.has(noteKey)) return false;
+        } else if (roundType !== "all" && String(record.roundType) !== roundType) {
+          return false;
+        }
         const blob = [
           record.note,
           record.timestamp,
@@ -1039,7 +1049,7 @@
     function refreshRoundTypeOptions() {
       const previous = els.roundTypeFilter.value || "all";
       const values = [...new Set(state.records.map(record => record.roundType).filter(value => value !== null && value !== undefined))].sort((a, b) => a - b);
-      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option>' + values.map(value => {
+      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option><option value="classicSpecial">クラシック特殊3体</option>' + values.map(value => {
         const label = escapeHtml(formatRoundType(value));
         return `<option value="${String(value)}">${label}</option>`;
       }).join("");
@@ -1051,12 +1061,10 @@
     }
 
     function updateStats() {
-      const players = new Set();
       const maps = new Set();
       const terrors = new Set();
       let wins = 0;
       for (const record of state.records) {
-        record.players.forEach(p => players.add(p));
         if (record.mapId !== null) maps.add(record.mapId);
         record.terrorData.forEach(item => {
           if (item && item.i !== undefined) terrors.add(Number(item.i));
@@ -1064,7 +1072,6 @@
         if (record.result === 1) wins += 1;
       }
       els.mRecords.textContent = formatNumber(state.records.length);
-      els.mPlayers.textContent = formatNumber(players.size);
       els.mMaps.textContent = formatNumber(maps.size);
       els.mTerrors.textContent = formatNumber(terrors.size);
       els.mWins.textContent = formatNumber(wins);
@@ -1332,7 +1339,7 @@
       els.fileName.textContent = "ファイル未選択";
       els.status.textContent = "JSONを選択";
       els.searchInput.value = "";
-      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option>';
+      els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option><option value="classicSpecial">クラシック特殊3体</option>';
       els.roundTypeFilter.value = "all";
       els.sortFilter.value = "raw";
       els.hideBlankToggle.checked = true;
@@ -1345,3 +1352,5 @@
   </script>
 </body>
 </html>
+
+
