@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      electron-log:
+        specifier: ^5.2.4
+        version: 5.4.4
+      electron-updater:
+        specifier: ^6.6.2
+        version: 6.8.9
     devDependencies:
       electron:
         specifier: ^32.2.6
@@ -14,12 +21,6 @@ importers:
       electron-builder:
         specifier: ^25.1.8
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
-      electron-log:
-        specifier: ^5.2.4
-        version: 5.4.4
-      electron-updater:
-        specifier: ^6.6.2
-        version: 6.8.9
 
 packages:
 

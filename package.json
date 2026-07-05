@@ -1,7 +1,7 @@
 {
   "name": "ton-save-analyzer",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.2",
   "description": "ToNSaveManager analyzer desktop app",
   "main": "electron-main.js",
   "scripts": {
@@ -12,10 +12,12 @@
     "dist:package": "electron-builder --config electron-builder.config.js --win portable --publish never && node scripts/make-release-package.mjs",
     "package:release": "node scripts/make-release-package.mjs"
   },
-  "devDependencies": {
-    "electron": "^32.2.6",
-    "electron-builder": "^25.1.8",
+  "dependencies": {
     "electron-log": "^5.2.4",
     "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "electron": "^32.2.6",
+    "electron-builder": "^25.1.8"
   }
 }

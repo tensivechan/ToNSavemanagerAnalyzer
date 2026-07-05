@@ -1,11 +1,21 @@
 const { app, BrowserWindow } = require("electron");
-const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const path = require("path");
 
 log.transports.file.level = "info";
-autoUpdater.logger = log;
-autoUpdater.autoDownload = true;
+
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require("electron-updater"));
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = true;
+} catch (error) {
+  log.warn("electron-updater is unavailable; auto update is disabled", error);
+}
+
+const iconPath = app.isPackaged
+  ? path.join(process.resourcesPath, "app-icon.ico")
+  : path.join(__dirname, "assets", "app-icon.ico");
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,7 +24,8 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 760,
     backgroundColor: "#f6f4ef",
-    title: "ToNSaveManager Analyzer",
+    title: "ToNSavemanagerAnalyzer",
+    icon: iconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -27,6 +38,8 @@ function createWindow() {
 }
 
 function setupAutoUpdater() {
+  if (!autoUpdater) return;
+
   autoUpdater.on("update-downloaded", () => {
     autoUpdater.quitAndInstall();
   });

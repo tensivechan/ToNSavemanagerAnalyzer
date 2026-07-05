@@ -8,6 +8,7 @@ const publish = owner && repo
 module.exports = {
   appId: "com.codex.tonsaveanalyzer",
   productName: "ToNSaveManager Analyzer",
+  icon: "assets/app-icon.ico",
   asar: true,
   files: [
     "electron-main.js",
@@ -18,6 +19,10 @@ module.exports = {
     {
       from: "Readme.txt",
       to: "Readme.txt"
+    },
+    {
+      from: "assets/app-icon.ico",
+      to: "app-icon.ico"
     }
   ],
   win: {

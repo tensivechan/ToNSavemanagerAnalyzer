@@ -1,13 +1,18 @@
-ToNSaveManager Analyzer
+﻿ToNSaveManager Analyzer
 
 このフォルダにはアプリ本体と配布用の案内が入っています。
 
 使い方:
-1. ToNSaveManager Analyzer.exe を起動します
-2. 解析したい JSON ファイルを選択します
-3. 必要に応じて RoundType やソートで絞り込みます
+1. ToNSaveManager Analyzer.exe を起動する
+2. 調べたい JSON ファイルを読み込む
+3. 必要に応じて RoundType で絞り込む
 
 注意:
-- このフォルダ内のファイルは移動しないでください
-- 更新版は GitHub Releases から入手できます
+- このフォルダ内のファイルは改変しないでください。
+- 更新版は GitHub Releases から確認できます。
 
+## 配布条件
+
+- 二次配布は禁止です。
+- 他人への共有は禁止です。
+- 本ファイルおよび同梱物は、配布された本人のみが利用してください。
