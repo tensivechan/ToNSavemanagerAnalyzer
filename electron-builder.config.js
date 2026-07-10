@@ -11,11 +11,13 @@ module.exports = {
   icon: "assets/app-icon.ico",
   asar: true,
   files: [
-    "electron-main.js",
-    "preload.js",
-    "outputs/ton-save-analyzer.html",
-    "scripts/achievement-engine.js",
-    "package.json"
+    "**/*",
+    "!dist{,/**}",
+    "!release-package{,/**}",
+    "!outputs/*.zip",
+    "!outputs/*.exe",
+    "!outputs/*.blockmap",
+    "!**/*.map"
   ],
   extraFiles: [
     {

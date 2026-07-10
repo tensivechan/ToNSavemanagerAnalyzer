@@ -3,14 +3,28 @@
 
   const CATALOG = [
     {
-      id: "classic_once",
-      name: "クラシックを一回やる",
-      description: "クラシックを1回プレイすると解除",
+      id: "classic_500",
+      name: "クラシックを500回やる",
+      description: "クラシックを500回プレイすると解除",
       criteria: {
-        roundTypes: [1]
+        roundTypes: [1],
+        countAtLeast: 500
       },
       osc: {
-        address: "/avatar/parameters/AchievementClassicOnce",
+        address: "/avatar/parameters/AchievementClassic500",
+        value: true
+      }
+    },
+    {
+      id: "alternate_100",
+      name: "オルタネイトを100回やる",
+      description: "オルタネイトを100回プレイすると解除",
+      criteria: {
+        roundTypes: [51],
+        countAtLeast: 100
+      },
+      osc: {
+        address: "/avatar/parameters/AchievementAlternate100",
         value: true
       }
     },
@@ -151,6 +165,28 @@
     return true;
   }
 
+  function getAchievementTarget(achievement) {
+    const target = Number(achievement && achievement.criteria && achievement.criteria.countAtLeast);
+    return Number.isFinite(target) && target > 0 ? target : 1;
+  }
+
+  function countMatchingRecords(records, criteria) {
+    if (!Array.isArray(records) || !records.length) return 0;
+    return records.reduce((count, record) => count + (matchesCriteria(record, criteria) ? 1 : 0), 0);
+  }
+
+  function getAchievementProgress(achievement, records) {
+    const target = getAchievementTarget(achievement);
+    const count = countMatchingRecords(records, achievement.criteria);
+    return {
+      id: achievement.id,
+      count,
+      target,
+      unlocked: unlocked.has(achievement.id),
+      complete: count >= target
+    };
+  }
+
   function showToast(achievement) {
     const root = document.getElementById("achievementToastRoot") || createToastRoot();
     const item = document.createElement("div");
@@ -263,8 +299,8 @@
     const unlockedNow = [];
     for (const achievement of CATALOG) {
       if (unlocked.has(achievement.id)) continue;
-      const matched = records.find(record => matchesCriteria(record, achievement.criteria));
-      if (matched) {
+      const progress = getAchievementProgress(achievement, records);
+      if (progress.complete) {
         const isNew = await unlock(achievement, sendOsc);
         if (isNew) unlockedNow.push(achievement);
       }
@@ -275,6 +311,9 @@
   window.TonAchievements = {
     catalog: CATALOG,
     scan,
+    progress(records) {
+      return CATALOG.map(achievement => getAchievementProgress(achievement, records));
+    },
     unlocked: () => [...unlocked],
     reset() {
       unlocked.clear();

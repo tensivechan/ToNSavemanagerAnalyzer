@@ -874,6 +874,29 @@
       line-height: 1.45;
     }
 
+    .achievement-progress {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .achievement-progress-bar {
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(127, 141, 170, .16);
+      border: 1px solid var(--line);
+    }
+
+    .achievement-progress-bar span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #68d0c0);
+      border-radius: inherit;
+    }
+
     .achievement-meta {
       display: flex;
       justify-content: space-between;
@@ -959,7 +982,7 @@
 
       <div class="toolbar">
         <label class="drop" id="dropZone">
-          <input type="file" id="fileInput" accept=".json,application/json" multiple>
+          <input type="file" id="fileInput" accept=".json,.txt,.log,application/json,text/plain" multiple>
           <button class="primary" type="button" id="pickBtn">📂</button>
           <span class="file-name" id="fileName">ファイル未選択</span>
         </label>
@@ -1049,7 +1072,7 @@
       <div class="metric"><b id="aUnlocked">0</b><span>Unlocked</span></div>
       <div class="metric"><b id="aTotal">0</b><span>Total</span></div>
       <div class="metric"><b id="aPending">0</b><span>Pending</span></div>
-      <div class="metric"><b id="aOsc">0</b><span>OSC</span></div>
+      <div class="metric"><b id="aLog">0</b><span>Log</span></div>
     </section>
 
     <div class="achievement-grid" id="achievementsGrid"></div>
@@ -1168,6 +1191,36 @@
       [107, "Rift Monsters"]
     ]);
 
+    const roundTypeLabelLookup = new Map([
+      ...[...roundTypes.entries()].map(([id, label]) => [String(label).trim().toLowerCase(), id]),
+      ["classic", 1],
+      ["fog", 2],
+      ["punish", 3],
+      ["sabotage", 4],
+      ["insanity", 5],
+      ["bloodbath", 6],
+      ["double trouble", 7],
+      ["lvl2", 7],
+      ["ex", 8],
+      ["ghost", 9],
+      ["unbound", 10],
+      ["randomizer", 11],
+      ["classic.exe", 12],
+      ["cracked", 12],
+      ["midnight", 50],
+      ["alternate", 51],
+      ["fog alternate", 52],
+      ["ghost alternate", 53],
+      ["mystic moon", 100],
+      ["blood moon", 101],
+      ["twilight moon", 102],
+      ["solstice", 103],
+      ["run!", 104],
+      ["8 pages", 105],
+      ["gigabyte", 106],
+      ["rift monsters", 107]
+    ]);
+
     const classicSpecialNames = new Set([
       "hungry home invader",
       "atrached",
@@ -1184,14 +1237,17 @@
       rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1"
     };
 
-    const liveOscState = {
+    const liveLogState = {
       note: "",
       roundType: null,
+      roundTypeLabel: "",
       mapId: null,
+      mapName: "",
       playerCount: null,
       terrorCount: null,
       terrorIds: [],
       terrorData: [],
+      result: null,
       lastAddress: "",
       lastMessageAt: 0,
       raw: {}
@@ -1228,7 +1284,7 @@
       aUnlocked: document.getElementById("aUnlocked"),
       aTotal: document.getElementById("aTotal"),
       aPending: document.getElementById("aPending"),
-      aOsc: document.getElementById("aOsc"),
+      aLog: document.getElementById("aLog"),
       mRecords: document.getElementById("mRecords"),
       mMaps: document.getElementById("mMaps"),
       mTerrors: document.getElementById("mTerrors"),
@@ -1274,12 +1330,12 @@
     els.achievementsCloseBtn.addEventListener("click", () => window.close());
     window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
     window.addEventListener("storage", renderAchievementsView);
-    if (!isAchievementsView && window.tonsave && typeof window.tonsave.onOscMessage === "function") {
-      window.tonsave.onOscMessage(handleOscMessage);
+    if (!isAchievementsView && window.tonsave && typeof window.tonsave.onLogMessage === "function") {
+      window.tonsave.onLogMessage(handleLogMessage);
     }
-    if (window.tonsave && typeof window.tonsave.getOscState === "function") {
-      window.tonsave.getOscState()
-        .then(syncLiveOscState)
+    if (window.tonsave && typeof window.tonsave.getLogState === "function") {
+      window.tonsave.getLogState()
+        .then(syncLiveLogState)
         .catch(() => {});
     }
 
@@ -1331,9 +1387,8 @@
       reader.onload = () => {
         try {
           const text = stripBom(String(reader.result || ""));
-          const parsed = JSON.parse(text);
-          const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.Collection) ? parsed.Collection : []);
-          if (!rows.length) throw new Error("配列形式の保存データが見つかりません");
+          const rows = parseImportedText(text, file.name, 0);
+          if (!rows.length) throw new Error("解析対象のデータが見つかりません");
           resolve(rows);
         } catch (error) {
           reject(error);
@@ -1346,6 +1401,136 @@
 
     function stripBom(text) {
       return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    }
+
+    function parseImportedText(text, sourceFile, sourceFileIndex) {
+      const trimmed = String(text || "").trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.Collection) ? parsed.Collection : []);
+        if (rows.length) {
+          return rows.map((row, index) => normalizeRecord(row, index, sourceFile, sourceFileIndex));
+        }
+      } catch {
+        /* not JSON */
+      }
+      return parseTonLogText(trimmed, sourceFile, sourceFileIndex);
+    }
+
+    function parseTonLogText(text, sourceFile, sourceFileIndex) {
+      const lines = String(text || "").split(/\r?\n/);
+      const records = [];
+      let current = null;
+      let recordIndex = 0;
+
+      const finishCurrent = () => {
+        if (!current) return;
+        current.terrorCount = Array.isArray(current.terrorData) ? current.terrorData.length : 0;
+        current.expectedTerrorCount = expectedTerrorCount(current.roundType);
+        current.terrorComposition = terrorComposition(current.roundType, current.terrorData);
+        current.terrorLabels = Array.isArray(current.terrorData)
+          ? current.terrorData.map(item => {
+              const id = Number(item && item.i);
+              const name = knownTerrors.get(id);
+              return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
+            }).filter(Boolean)
+          : [];
+        current.recordKey = `${sourceFileIndex}:${recordIndex}`;
+        current.sourceIndex = recordIndex;
+        current.sourceFileIndex = sourceFileIndex;
+        current.sourceFile = sourceFile;
+        current.raw = { ...current.raw, logLines: [...(current.raw && current.raw.logLines ? current.raw.logLines : [])] };
+        records.push(current);
+        recordIndex += 1;
+        current = null;
+      };
+
+      const ensureCurrent = (timestamp) => {
+        if (!current) {
+          current = {
+            timestamp,
+            note: "",
+            mapId: null,
+            roundType: null,
+            roundTypeExtra: "",
+            playerCount: null,
+            players: [],
+            terrorData: [],
+            terrorLabels: [],
+            terrorCount: 0,
+            expectedTerrorCount: null,
+            terrorComposition: "",
+            result: null,
+            errors: "",
+            content: "",
+            contentLength: 0,
+            raw: { logLines: [] }
+          };
+        }
+        return current;
+      };
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const timestamp = line.slice(0, 19).replace(/\./g, "-").replace(" ", "T");
+        const roundStart = line.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
+        if (roundStart) {
+          if (current) finishCurrent();
+          current = ensureCurrent(timestamp);
+          current.mapName = roundStart[1].trim();
+          current.mapId = Number(roundStart[2]);
+          current.roundTypeExtra = roundStart[3].trim();
+          current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
+          current.note = `${current.roundTypeExtra} @ ${current.mapName}`;
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        const killers = line.match(/Killers have been set - ([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
+        if (killers) {
+          current = ensureCurrent(timestamp);
+          current.terrorData = killers[1]
+            .trim()
+            .split(/\s+/)
+            .map(value => Number(value))
+            .filter(Number.isFinite)
+            .map(i => ({ i }));
+          current.roundTypeExtra = killers[2].trim();
+          if (current.roundType === null) {
+            current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
+          }
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        if (/^RoundOver$/i.test(line) || /^Round was valid\.$/i.test(line) || /^Verified Round End$/i.test(line)) {
+          current = ensureCurrent(timestamp);
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        if (/^Lived in round\.$/i.test(line)) {
+          current = ensureCurrent(timestamp);
+          current.result = 1;
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        if (/^Died in round\.$/i.test(line) || /^You Died iN the Round$/i.test(line) || /^Player lost, not killer$/i.test(line)) {
+          current = ensureCurrent(timestamp);
+          current.result = 0;
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        if (current) {
+          current.raw.logLines.push(line);
+        }
+      }
+
+      finishCurrent();
+      return records;
     }
 
     function normalizeRecord(row, index, sourceFile, sourceFileIndex) {
@@ -1399,6 +1584,11 @@
     function numberOrNull(input) {
       const n = Number(input);
       return Number.isFinite(n) ? n : null;
+    }
+
+    function roundTypeIdFromLabel(label) {
+      const key = String(label || "").trim().toLowerCase();
+      return roundTypeLabelLookup.get(key) ?? null;
     }
 
     function sortRecords(records) {
@@ -1542,29 +1732,32 @@
       }
     }
 
-    function handleOscMessage(message) {
+    function handleLogMessage(message) {
       if (!message || !message.state) return;
-      syncLiveOscState(message.state);
+      syncLiveLogState(message.state);
     }
 
-    function syncLiveOscState(snapshot = {}) {
-      liveOscState.note = value(snapshot.note);
-      liveOscState.roundType = numberOrNull(snapshot.roundType);
-      liveOscState.mapId = numberOrNull(snapshot.mapId);
-      liveOscState.playerCount = numberOrNull(snapshot.playerCount);
-      liveOscState.terrorCount = numberOrNull(snapshot.terrorCount);
-      liveOscState.terrorIds = Array.isArray(snapshot.terrorIds)
+    function syncLiveLogState(snapshot = {}) {
+      liveLogState.note = value(snapshot.note);
+      liveLogState.roundType = numberOrNull(snapshot.roundType);
+      liveLogState.roundTypeLabel = value(snapshot.roundTypeLabel);
+      liveLogState.mapId = numberOrNull(snapshot.mapId);
+      liveLogState.mapName = value(snapshot.mapName);
+      liveLogState.playerCount = numberOrNull(snapshot.playerCount);
+      liveLogState.terrorCount = numberOrNull(snapshot.terrorCount);
+      liveLogState.terrorIds = Array.isArray(snapshot.terrorIds)
         ? snapshot.terrorIds.map(numberOrNull).filter(value => value !== null)
         : [];
-      liveOscState.terrorData = Array.isArray(snapshot.terrorData)
+      liveLogState.terrorData = Array.isArray(snapshot.terrorData)
         ? snapshot.terrorData.map(item => ({
             ...(item && typeof item === "object" ? item : {}),
             i: numberOrNull(item && item.i)
           }))
-        : liveOscState.terrorIds.map(id => ({ i: id }));
-      liveOscState.lastAddress = value(snapshot.lastAddress);
-      liveOscState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
-      liveOscState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
+        : liveLogState.terrorIds.map(id => ({ i: id }));
+      liveLogState.result = snapshot.result === null || snapshot.result === undefined ? null : numberOrNull(snapshot.result);
+      liveLogState.lastAddress = value(snapshot.lastAddress);
+      liveLogState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
+      liveLogState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
 
       if (!isAchievementsView && window.TonAchievements) {
         const record = buildLiveRecord();
@@ -1575,12 +1768,15 @@
 
     function buildLiveRecord() {
       return {
-        note: liveOscState.note,
-        roundType: liveOscState.roundType,
-        mapId: liveOscState.mapId,
-        playerCount: liveOscState.playerCount,
-        terrorCount: liveOscState.terrorCount,
-        terrorData: liveOscState.terrorData,
+        note: liveLogState.note,
+        roundType: liveLogState.roundType,
+        roundTypeLabel: liveLogState.roundTypeLabel,
+        mapId: liveLogState.mapId,
+        mapName: liveLogState.mapName,
+        playerCount: liveLogState.playerCount,
+        terrorCount: liveLogState.terrorCount,
+        terrorData: liveLogState.terrorData,
+        result: liveLogState.result,
         terrorLabels: [],
         terrorComposition: ""
       };
@@ -1621,12 +1817,19 @@
         const max = criteria.terrorCountMax !== undefined ? criteria.terrorCountMax : "-";
         parts.push(`TD=${min}..${max}`);
       }
+      if (criteria.countAtLeast !== undefined) {
+        parts.push(`回数>=${criteria.countAtLeast}`);
+      }
       return parts.length ? parts.join(" / ") : "条件なし";
     }
 
     function renderAchievementsView() {
       if (!els.achievementsGrid) return;
       const { catalog, unlocked } = readAchievementState();
+      const progressList = window.TonAchievements && typeof window.TonAchievements.progress === "function"
+        ? window.TonAchievements.progress(state.records)
+        : [];
+      const progressMap = new Map(progressList.map(item => [item.id, item]));
       const unlockedCount = catalog.filter(item => unlocked.has(item.id)).length;
       const total = catalog.length;
       const pending = Math.max(total - unlockedCount, 0);
@@ -1635,13 +1838,15 @@
       els.aUnlocked.textContent = formatNumber(unlockedCount);
       els.aTotal.textContent = formatNumber(total);
       els.aPending.textContent = formatNumber(pending);
-      els.aOsc.textContent = formatNumber(oscCount);
+      els.aLog.textContent = formatNumber(oscCount);
       els.achievementsSubtitle.textContent = isAchievementsView
         ? "解除済みの実績をここで確認できます"
         : "実績ウィンドウを開いて確認できます";
 
       els.achievementsGrid.innerHTML = catalog.length ? catalog.map(item => {
         const unlockedNow = unlocked.has(item.id);
+        const progress = progressMap.get(item.id) || { count: 0, target: 1 };
+        const percent = progress.target ? Math.min(100, Math.max(0, (progress.count / progress.target) * 100)) : 0;
         return `
           <article class="achievement-card ${unlockedNow ? "unlocked" : "locked"}">
             <div class="achievement-meta">
@@ -1651,6 +1856,10 @@
             <h2>${escapeHtml(item.name)}</h2>
             <p>${escapeHtml(item.description || "")}</p>
             <p>${escapeHtml(describeAchievementCriteria(item.criteria))}</p>
+            <div class="achievement-progress">
+              <div>${escapeHtml(formatNumber(progress.count))}/${escapeHtml(formatNumber(progress.target))}</div>
+              <div class="achievement-progress-bar"><span style="width:${percent}%"></span></div>
+            </div>
           </article>
         `;
       }).join("") : `<div class="empty">実績がまだありません</div>`;

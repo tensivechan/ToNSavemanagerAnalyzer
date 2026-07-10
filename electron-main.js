@@ -1,7 +1,9 @@
 ﻿const { app, BrowserWindow } = require("electron");
 const { ipcMain } = require("electron");
 const log = require("electron-log");
+const fs = require("node:fs");
 const dgram = require("node:dgram");
+const os = require("node:os");
 const path = require("path");
 
 log.transports.file.level = "info";
@@ -10,14 +12,22 @@ let autoUpdater = null;
 let mainWindow = null;
 let achievementsWindow = null;
 let oscSocket = null;
+let logWatcher = null;
+let logPollTimer = null;
+let activeLogFile = "";
+let activeLogOffset = 0;
+let activeLogRemainder = "";
 const oscLiveState = {
   note: "",
   roundType: null,
+  roundTypeLabel: "",
   mapId: null,
+  mapName: "",
   playerCount: null,
   terrorCount: null,
   terrorIds: [],
   terrorData: [],
+  result: null,
   lastAddress: "",
   lastMessageAt: 0,
   raw: {}
@@ -63,9 +73,304 @@ function broadcastOscMessage(message) {
   }
 }
 
+function broadcastLogMessage(message) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("log:message", message);
+    }
+  }
+}
+
+function getVrcLogDirectory() {
+  return path.join(os.homedir(), "AppData", "LocalLow", "VRChat", "VRChat");
+}
+
+function isOutputLogFile(name) {
+  return /^output_log.*\.txt$/i.test(String(name || ""));
+}
+
+async function findLatestLogFile() {
+  const dir = getVrcLogDirectory();
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    let latest = null;
+    for (const entry of entries) {
+      if (!entry.isFile() || !isOutputLogFile(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      const stat = await fs.promises.stat(fullPath);
+      if (!latest || stat.mtimeMs > latest.mtimeMs || (stat.mtimeMs === latest.mtimeMs && stat.size > latest.size)) {
+        latest = {
+          path: fullPath,
+          mtimeMs: stat.mtimeMs,
+          size: stat.size
+        };
+      }
+    }
+    return latest;
+  } catch (error) {
+    log.warn("Failed to inspect VRChat log directory", error);
+    return null;
+  }
+}
+
+function parseLogJsonCandidate(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  const candidate = text.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
+
+function parseLogTerrorData(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => {
+      if (item && typeof item === "object") {
+        return {
+          ...item,
+          i: item.i !== undefined ? Number(item.i) : item.id !== undefined ? Number(item.id) : null
+        };
+      }
+      const number = Number(item);
+      return Number.isFinite(number) ? { i: number } : null;
+    }).filter(Boolean);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const json = parseLogJsonCandidate(value);
+    if (Array.isArray(json)) return parseLogTerrorData(json);
+    return value
+      .split(/[\s,;|]+/)
+      .map(item => Number(item))
+      .filter(Number.isFinite)
+      .map(i => ({ i }));
+  }
+
+  return [];
+}
+
+function parseLogLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return null;
+  const update = {};
+
+  const roundStartMatch = text.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
+  if (roundStartMatch) {
+    const mapName = roundStartMatch[1].trim();
+    const mapId = Number(roundStartMatch[2]);
+    const roundTypeLabel = roundStartMatch[3].trim();
+    update.mapName = mapName;
+    update.mapId = mapId;
+    update.roundTypeLabel = roundTypeLabel;
+    update.roundType = roundTypeIdFromLabel(roundTypeLabel);
+    update.note = `${roundTypeLabel} @ ${mapName}`;
+    return update;
+  }
+
+  const killersMatch = text.match(/Killers have been set - ([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
+  if (killersMatch) {
+    const terrorData = killersMatch[1]
+      .trim()
+      .split(/\s+/)
+      .map(value => Number(value))
+      .filter(Number.isFinite)
+      .map(i => ({ i }));
+    const roundTypeLabel = killersMatch[2].trim();
+    update.terrorData = terrorData;
+    update.terrorCount = terrorData.length;
+    update.roundTypeLabel = roundTypeLabel;
+    if (update.roundType === undefined || update.roundType === null) {
+      update.roundType = roundTypeIdFromLabel(roundTypeLabel);
+    }
+    return update;
+  }
+
+  if (/^RoundOver$/i.test(text) || /^Round was valid\.$/i.test(text) || /^Verified Round End$/i.test(text)) {
+    return { raw: text };
+  }
+
+  if (/^Lived in round\.$/i.test(text)) {
+    update.result = 1;
+    return update;
+  }
+
+  if (/^Died in round\.$/i.test(text) || /^You Died iN the Round$/i.test(text) || /^Player lost, not killer$/i.test(text)) {
+    update.result = 0;
+    return update;
+  }
+
+  const json = parseLogJsonCandidate(text);
+  if (json && typeof json === "object") {
+    if (json.Note !== undefined || json.note !== undefined) update.note = json.note ?? json.Note;
+    if (json.RT !== undefined || json.roundType !== undefined || json.rt !== undefined) update.roundType = json.roundType ?? json.RT ?? json.rt;
+    if (json.MapID !== undefined || json.mapId !== undefined || json.mapID !== undefined) update.mapId = json.mapId ?? json.MapID ?? json.mapID;
+    if (json.pc !== undefined || json.playerCount !== undefined) update.playerCount = json.playerCount ?? json.pc;
+    if (json.TD !== undefined || json.terrorData !== undefined || json.terrorIds !== undefined) {
+      update.terrorData = parseLogTerrorData(json.terrorData ?? json.TD ?? json.terrorIds);
+      update.terrorCount = update.terrorData.length;
+    }
+  }
+
+  const patterns = [
+    { key: "note", re: /(Terror Name|Note|Name)\s*[:=]\s*(.+)$/i },
+    { key: "roundType", re: /\b(?:RoundType|RT)\s*[:=]\s*(-?\d+)\b/i },
+    { key: "mapId", re: /\b(?:MapID|MapId|mapid)\s*[:=]\s*(-?\d+)\b/i },
+    { key: "playerCount", re: /\b(?:Player Count|PlayerCount|pc)\s*[:=]\s*(\d+)\b/i },
+    { key: "terrorCount", re: /\b(?:TerrorCount|TDCount|TD)\s*[:=]\s*(\d+)\b/i },
+    { key: "terrorData", re: /\b(?:TerrorIDs|TerrorIds|TD|terrorIds)\s*[:=]\s*(.+)$/i }
+  ];
+
+  for (const { key, re } of patterns) {
+    const match = text.match(re);
+    if (!match) continue;
+    const value = match[1];
+    if (key === "terrorData") {
+      const data = parseLogTerrorData(value);
+      if (data.length) {
+        update.terrorData = data;
+        update.terrorCount = data.length;
+      }
+      continue;
+    }
+    update[key] = value;
+  }
+
+  return Object.keys(update).length ? update : null;
+}
+
+function processLogChunk(chunk, state = {}) {
+  const emit = state.emit !== false;
+  activeLogRemainder += String(chunk || "");
+  const lines = activeLogRemainder.split(/\r?\n/);
+  activeLogRemainder = lines.pop() || "";
+  let changed = false;
+
+  for (const line of lines) {
+    const update = parseLogLine(line);
+    if (!update) continue;
+    const didChange = applyLiveOscRecord(update);
+    if (didChange) {
+      changed = true;
+      if (emit) {
+        broadcastLogMessage({
+          filePath: activeLogFile,
+          line,
+          update,
+          state: snapshotOscState(),
+          receivedAt: Date.now()
+        });
+      }
+    }
+  }
+
+  return changed;
+}
+
+async function refreshLogTail() {
+  const latest = await findLatestLogFile();
+  if (!latest) return;
+
+  if (latest.path !== activeLogFile) {
+    activeLogFile = latest.path;
+    activeLogOffset = latest.size;
+    activeLogRemainder = "";
+    applyLiveOscRecord({ reset: true });
+    broadcastLogMessage({
+      filePath: activeLogFile,
+      line: "",
+      update: { reset: true },
+      state: snapshotOscState(),
+      receivedAt: Date.now()
+    });
+    log.info(`Watching VRChat log: ${activeLogFile}`);
+    return;
+  }
+
+  if (latest.size < activeLogOffset) {
+    activeLogOffset = latest.size;
+    activeLogRemainder = "";
+    return;
+  }
+
+  if (latest.size === activeLogOffset) return;
+
+  const length = latest.size - activeLogOffset;
+  const handle = await fs.promises.open(activeLogFile, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, activeLogOffset);
+    activeLogOffset = latest.size;
+    processLogChunk(buffer.toString("utf8"), { emit: true });
+  } finally {
+    await handle.close();
+  }
+}
+
+function startLogWatcher() {
+  if (logPollTimer) return;
+  refreshLogTail().catch(error => log.warn("Initial VRChat log scan failed", error));
+  logPollTimer = setInterval(() => {
+    refreshLogTail().catch(error => log.warn("VRChat log tail refresh failed", error));
+  }, 1500);
+  if (typeof logPollTimer.unref === "function") {
+    logPollTimer.unref();
+  }
+}
+
+function stopLogWatcher() {
+  if (logPollTimer) {
+    clearInterval(logPollTimer);
+    logPollTimer = null;
+  }
+  activeLogFile = "";
+  activeLogOffset = 0;
+  activeLogRemainder = "";
+}
+
 function coerceNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+const roundTypeLabelToId = new Map([
+  ["classic", 1],
+  ["fog", 2],
+  ["punish", 3],
+  ["sabotage", 4],
+  ["insanity", 5],
+  ["bloodbath", 6],
+  ["double trouble", 7],
+  ["lvl2", 7],
+  ["ex", 8],
+  ["ghost", 9],
+  ["unbound", 10],
+  ["randomizer", 11],
+  ["classic.exe", 12],
+  ["cracked", 12],
+  ["midnight", 50],
+  ["alternate", 51],
+  ["fog alternate", 52],
+  ["ghost alternate", 53],
+  ["mystic moon", 100],
+  ["blood moon", 101],
+  ["twilight moon", 102],
+  ["solstice", 103],
+  ["run!", 104],
+  ["8 pages", 105],
+  ["gigabyte", 106],
+  ["rift monsters", 107]
+]);
+
+function roundTypeIdFromLabel(label) {
+  const normalized = normalizeText(label).replace(/\s+/g, " ");
+  return roundTypeLabelToId.get(normalized) ?? null;
 }
 
 function normalizeAddress(address) {
@@ -149,11 +454,14 @@ function snapshotOscState() {
   return {
     note: oscLiveState.note,
     roundType: oscLiveState.roundType,
+    roundTypeLabel: oscLiveState.roundTypeLabel,
     mapId: oscLiveState.mapId,
+    mapName: oscLiveState.mapName,
     playerCount: oscLiveState.playerCount,
     terrorCount: oscLiveState.terrorCount,
     terrorIds: [...oscLiveState.terrorIds],
     terrorData: oscLiveState.terrorData.map(item => ({ ...item })),
+    result: oscLiveState.result,
     lastAddress: oscLiveState.lastAddress,
     lastMessageAt: oscLiveState.lastMessageAt,
     raw: { ...oscLiveState.raw }
@@ -161,40 +469,87 @@ function snapshotOscState() {
 }
 
 function applyLiveOscRecord(partial = {}) {
+  let changed = false;
   if (partial.reset) {
     oscLiveState.note = "";
     oscLiveState.roundType = null;
+    oscLiveState.roundTypeLabel = "";
     oscLiveState.mapId = null;
+    oscLiveState.mapName = "";
     oscLiveState.playerCount = null;
     oscLiveState.terrorCount = null;
     oscLiveState.terrorIds = [];
     oscLiveState.terrorData = [];
+    oscLiveState.result = null;
     oscLiveState.raw = {};
+    changed = true;
   }
 
-  if (partial.note !== undefined) oscLiveState.note = String(partial.note || "");
-  if (partial.roundType !== undefined) oscLiveState.roundType = coerceNumber(partial.roundType);
-  if (partial.mapId !== undefined) oscLiveState.mapId = coerceNumber(partial.mapId);
-  if (partial.playerCount !== undefined) oscLiveState.playerCount = coerceNumber(partial.playerCount);
-  if (partial.terrorCount !== undefined) oscLiveState.terrorCount = coerceNumber(partial.terrorCount);
+  if (partial.note !== undefined) {
+    const next = String(partial.note || "");
+    if (oscLiveState.note !== next) changed = true;
+    oscLiveState.note = next;
+  }
+  if (partial.roundType !== undefined) {
+    const next = coerceNumber(partial.roundType);
+    if (oscLiveState.roundType !== next) changed = true;
+    oscLiveState.roundType = next;
+  }
+  if (partial.roundTypeLabel !== undefined) {
+    const next = String(partial.roundTypeLabel || "");
+    if (oscLiveState.roundTypeLabel !== next) changed = true;
+    oscLiveState.roundTypeLabel = next;
+  }
+  if (partial.mapId !== undefined) {
+    const next = coerceNumber(partial.mapId);
+    if (oscLiveState.mapId !== next) changed = true;
+    oscLiveState.mapId = next;
+  }
+  if (partial.mapName !== undefined) {
+    const next = String(partial.mapName || "");
+    if (oscLiveState.mapName !== next) changed = true;
+    oscLiveState.mapName = next;
+  }
+  if (partial.playerCount !== undefined) {
+    const next = coerceNumber(partial.playerCount);
+    if (oscLiveState.playerCount !== next) changed = true;
+    oscLiveState.playerCount = next;
+  }
+  if (partial.terrorCount !== undefined) {
+    const next = coerceNumber(partial.terrorCount);
+    if (oscLiveState.terrorCount !== next) changed = true;
+    oscLiveState.terrorCount = next;
+  }
+  if (partial.result !== undefined) {
+    const next = partial.result === null ? null : Number(partial.result);
+    if (oscLiveState.result !== next) changed = true;
+    oscLiveState.result = Number.isFinite(next) ? next : null;
+  }
 
   if (Array.isArray(partial.terrorIds)) {
-    oscLiveState.terrorIds = partial.terrorIds.map(coerceNumber).filter(Number.isFinite);
+    const next = partial.terrorIds.map(coerceNumber).filter(Number.isFinite);
+    if (JSON.stringify(oscLiveState.terrorIds) !== JSON.stringify(next)) changed = true;
+    oscLiveState.terrorIds = next;
   }
 
   if (Array.isArray(partial.terrorData)) {
-    oscLiveState.terrorData = partial.terrorData
+    const next = partial.terrorData
       .filter(item => item && typeof item === "object")
       .map(item => ({
         ...item,
         i: coerceNumber(item.i),
         g: item.g !== undefined ? item.g : undefined
       }));
+    if (JSON.stringify(oscLiveState.terrorData) !== JSON.stringify(next)) changed = true;
+    oscLiveState.terrorData = next;
   } else if (oscLiveState.terrorIds.length) {
-    oscLiveState.terrorData = oscLiveState.terrorIds.map(id => ({ i: id }));
+    const next = oscLiveState.terrorIds.map(id => ({ i: id }));
+    if (JSON.stringify(oscLiveState.terrorData) !== JSON.stringify(next)) changed = true;
+    oscLiveState.terrorData = next;
   }
 
   oscLiveState.lastMessageAt = Date.now();
+  return changed;
 }
 
 function applyLiveOscMessage(message) {
@@ -472,6 +827,7 @@ ipcMain.handle("osc:send", async (_event, message) => {
   return true;
 });
 
+ipcMain.handle("log:get-state", () => snapshotOscState());
 ipcMain.handle("osc:get-state", () => snapshotOscState());
 
 ipcMain.handle("ui:open-achievements", () => {
@@ -481,14 +837,17 @@ ipcMain.handle("ui:open-achievements", () => {
 
 app.whenReady().then(() => {
   createWindow();
-  startOscListener();
+  startLogWatcher();
   if (app.isPackaged) setupAutoUpdater();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-app.on("before-quit", stopOscListener);
+app.on("before-quit", () => {
+  stopLogWatcher();
+  stopOscListener();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
