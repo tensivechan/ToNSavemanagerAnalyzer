@@ -1196,6 +1196,7 @@
       ["classic", 1],
       ["fog", 2],
       ["punish", 3],
+      ["punished", 3],
       ["sabotage", 4],
       ["insanity", 5],
       ["bloodbath", 6],
@@ -1215,6 +1216,7 @@
       ["blood moon", 101],
       ["twilight moon", 102],
       ["solstice", 103],
+      ["run", 104],
       ["run!", 104],
       ["8 pages", 105],
       ["gigabyte", 106],
@@ -1348,12 +1350,12 @@
     }
 
     async function readFiles(files) {
-      const settled = await Promise.allSettled(files.map(readFile));
+      const settled = await Promise.allSettled(files.map((file, fileIndex) => readFile(file, fileIndex)));
       const rows = [];
       const errors = [];
       settled.forEach((item, fileIndex) => {
         if (item.status === "fulfilled") {
-          rows.push(...item.value.map((row, rowIndex) => normalizeRecord(row, rowIndex, files[fileIndex].name, fileIndex)));
+          rows.push(...item.value);
         } else {
           errors.push(`${files[fileIndex].name}: ${item.reason && item.reason.message ? item.reason.message : "解析失敗"}`);
         }
@@ -1381,13 +1383,13 @@
       }
     }
 
-    function readFile(file) {
+    function readFile(file, fileIndex) {
       return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         try {
           const text = stripBom(String(reader.result || ""));
-          const rows = parseImportedText(text, file.name, 0);
+          const rows = parseImportedText(text, file.name, fileIndex);
           if (!rows.length) throw new Error("解析対象のデータが見つかりません");
           resolve(rows);
         } catch (error) {
@@ -1408,7 +1410,7 @@
       if (!trimmed) return [];
       try {
         const parsed = JSON.parse(trimmed);
-        const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.Collection) ? parsed.Collection : []);
+        const rows = extractRecordRows(parsed);
         if (rows.length) {
           return rows.map((row, index) => normalizeRecord(row, index, sourceFile, sourceFileIndex));
         }
@@ -1416,6 +1418,29 @@
         /* not JSON */
       }
       return parseTonLogText(trimmed, sourceFile, sourceFileIndex);
+    }
+
+    function extractRecordRows(parsed) {
+      if (Array.isArray(parsed)) return parsed;
+      if (!parsed || typeof parsed !== "object") return [];
+      const candidates = [
+        parsed.Collection,
+        parsed.collection,
+        parsed.Data,
+        parsed.data,
+        parsed.Records,
+        parsed.records,
+        parsed.Rows,
+        parsed.rows,
+        parsed.Items,
+        parsed.items,
+        parsed.List,
+        parsed.list
+      ];
+      for (const candidate of candidates) {
+        if (Array.isArray(candidate)) return candidate;
+      }
+      return [];
     }
 
     function parseTonLogText(text, sourceFile, sourceFileIndex) {
@@ -1542,6 +1567,14 @@
         return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
       }).filter(Boolean);
       const content = typeof row.Content === "string" ? row.Content : "";
+      const itemName = value(
+        row.Item ??
+        row.item ??
+        row.ItemName ??
+        row.itemName ??
+        row.Items ??
+        row.items
+      ).trim();
       const recordKey = `${sourceFileIndex}:${index}`;
         return {
           recordKey,
@@ -1549,6 +1582,7 @@
           sourceFileIndex,
           sourceFile,
           note: value(row.Note),
+        itemName,
         timestamp: value(row.Timestamp),
         mapId: numberOrNull(row.MapID),
         rawRoundType: numberOrNull(row.RT),
@@ -1769,6 +1803,7 @@
     function buildLiveRecord() {
       return {
         note: liveLogState.note,
+        itemName: liveLogState.itemName || "",
         roundType: liveLogState.roundType,
         roundTypeLabel: liveLogState.roundTypeLabel,
         mapId: liveLogState.mapId,
