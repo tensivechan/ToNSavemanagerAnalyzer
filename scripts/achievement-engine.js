@@ -3,6 +3,18 @@
 
   const CATALOG = [
     {
+      id: "classic_once",
+      name: "クラシックを一回やる",
+      description: "クラシックを1回プレイすると解除",
+      criteria: {
+        roundTypes: [1]
+      },
+      osc: {
+        address: "/avatar/parameters/AchievementClassicOnce",
+        value: true
+      }
+    },
+    {
       id: "classic_hungry_home_invader",
       name: "Hungry Home Invader",
       description: "クラシックで Hungry Home Invader を引く",

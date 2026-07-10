@@ -678,7 +678,8 @@
     }
 
     body[data-theme="dark"] .drop {
-      background: rgba(24, 29, 38, .95);
+      background: #121823;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, .28);
     }
 
     body[data-theme="dark"] .ghost {
@@ -692,7 +693,9 @@
     }
 
     body[data-theme="dark"] .metric {
-      background: rgba(24, 29, 38, .88);
+      background: #151b25;
+      border-color: var(--line);
+      box-shadow: none;
     }
 
     body[data-theme="dark"] header {
@@ -700,8 +703,10 @@
     }
 
     body[data-theme="dark"] .section-head,
-    body[data-theme="dark"] th {
-      background: #141922;
+    body[data-theme="dark"] th,
+    body[data-theme="dark"] .kv .k,
+    body[data-theme="dark"] .players li {
+      background: #121821;
     }
 
     body[data-theme="dark"] tr:hover td {
@@ -714,6 +719,85 @@
 
     body[data-theme="dark"] button:hover {
       border-color: #49566a;
+    }
+
+    body[data-theme="dark"] .badge,
+    body[data-theme="dark"] .achievement-tag {
+      background: #1a2230;
+      color: var(--ink);
+      border-color: #2b3442;
+    }
+
+    body[data-theme="dark"] .badge.win,
+    body[data-theme="dark"] .achievement-tag.ok {
+      background: rgba(97, 212, 195, .12);
+      color: #9fe8db;
+      border-color: rgba(97, 212, 195, .28);
+    }
+
+    body[data-theme="dark"] .badge.loss,
+    body[data-theme="dark"] .achievement-tag.no {
+      background: rgba(255, 125, 117, .12);
+      color: #ffb1ac;
+      border-color: rgba(255, 125, 117, .25);
+    }
+
+    body[data-theme="dark"] .badge.warn {
+      background: rgba(255, 185, 72, .12);
+      color: #ffd68b;
+      border-color: rgba(255, 185, 72, .22);
+    }
+
+    body[data-theme="dark"] .empty,
+    body[data-theme="dark"] .status,
+    body[data-theme="dark"] .file-name,
+    body[data-theme="dark"] .achievements-subtitle,
+    body[data-theme="dark"] .metric span,
+    body[data-theme="dark"] .achievement-card p {
+      color: #9aa5b6;
+    }
+
+    body[data-theme="dark"] .kv {
+      border-color: #2b3442;
+    }
+
+    body[data-theme="dark"] .kv div,
+    body[data-theme="dark"] .players li {
+      background: #161c27;
+      border-color: #2b3442;
+    }
+
+    body[data-theme="dark"] .section,
+    body[data-theme="dark"] .achievement-card {
+      background: #151b25;
+      border-color: #2b3442;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, .28);
+    }
+
+    body[data-theme="dark"] .section-head {
+      border-bottom-color: #2b3442;
+    }
+
+    body[data-theme="dark"] .achievement-card.unlocked {
+      border-color: rgba(97, 212, 195, .32);
+      box-shadow: 0 10px 24px rgba(97, 212, 195, .10);
+    }
+
+    body[data-theme="dark"] .achievement-card.locked {
+      opacity: .86;
+    }
+
+    body[data-theme="dark"] textarea {
+      background: #0f141c;
+      color: #edf3fb;
+    }
+
+    body[data-theme="dark"] .drop.dragover {
+      background: #162331;
+    }
+
+    body[data-theme="dark"] .achievement-summary .metric {
+      border-color: #2b3442;
     }
 
     .achievements-head {
@@ -1100,6 +1184,19 @@
       rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1"
     };
 
+    const liveOscState = {
+      note: "",
+      roundType: null,
+      mapId: null,
+      playerCount: null,
+      terrorCount: null,
+      terrorIds: [],
+      terrorData: [],
+      lastAddress: "",
+      lastMessageAt: 0,
+      raw: {}
+    };
+
     const isAchievementsView = document.documentElement.dataset.view === "achievements";
 
     const els = {
@@ -1177,6 +1274,14 @@
     els.achievementsCloseBtn.addEventListener("click", () => window.close());
     window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
     window.addEventListener("storage", renderAchievementsView);
+    if (!isAchievementsView && window.tonsave && typeof window.tonsave.onOscMessage === "function") {
+      window.tonsave.onOscMessage(handleOscMessage);
+    }
+    if (window.tonsave && typeof window.tonsave.getOscState === "function") {
+      window.tonsave.getOscState()
+        .then(syncLiveOscState)
+        .catch(() => {});
+    }
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
@@ -1435,6 +1540,50 @@
       if (window.tonsave && typeof window.tonsave.openAchievements === "function") {
         window.tonsave.openAchievements();
       }
+    }
+
+    function handleOscMessage(message) {
+      if (!message || !message.state) return;
+      syncLiveOscState(message.state);
+    }
+
+    function syncLiveOscState(snapshot = {}) {
+      liveOscState.note = value(snapshot.note);
+      liveOscState.roundType = numberOrNull(snapshot.roundType);
+      liveOscState.mapId = numberOrNull(snapshot.mapId);
+      liveOscState.playerCount = numberOrNull(snapshot.playerCount);
+      liveOscState.terrorCount = numberOrNull(snapshot.terrorCount);
+      liveOscState.terrorIds = Array.isArray(snapshot.terrorIds)
+        ? snapshot.terrorIds.map(numberOrNull).filter(value => value !== null)
+        : [];
+      liveOscState.terrorData = Array.isArray(snapshot.terrorData)
+        ? snapshot.terrorData.map(item => ({
+            ...(item && typeof item === "object" ? item : {}),
+            i: numberOrNull(item && item.i)
+          }))
+        : liveOscState.terrorIds.map(id => ({ i: id }));
+      liveOscState.lastAddress = value(snapshot.lastAddress);
+      liveOscState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
+      liveOscState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
+
+      if (!isAchievementsView && window.TonAchievements) {
+        const record = buildLiveRecord();
+        window.TonAchievements.scan([record], window.tonsave && window.tonsave.oscSend);
+        renderAchievementsView();
+      }
+    }
+
+    function buildLiveRecord() {
+      return {
+        note: liveOscState.note,
+        roundType: liveOscState.roundType,
+        mapId: liveOscState.mapId,
+        playerCount: liveOscState.playerCount,
+        terrorCount: liveOscState.terrorCount,
+        terrorData: liveOscState.terrorData,
+        terrorLabels: [],
+        terrorComposition: ""
+      };
     }
 
     function readAchievementState() {
