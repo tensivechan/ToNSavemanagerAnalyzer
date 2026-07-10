@@ -235,6 +235,85 @@
       min-height: 20px;
     }
 
+    .update-panel {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.7);
+    }
+
+    .update-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+    }
+
+    .update-status {
+      min-width: 0;
+      flex: 1 1 260px;
+      color: var(--ink);
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .update-pill {
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      color: var(--accent);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .live-panel {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      margin: 0 clamp(16px, 3vw, 32px) 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .live-label {
+      font-size: 12px;
+      letter-spacing: .04em;
+      color: var(--muted);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .live-value {
+      min-width: 0;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .live-pill {
+      justify-self: end;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: var(--soft);
+      color: var(--accent);
+      border: 1px solid rgba(19, 111, 99, .18);
+      white-space: nowrap;
+    }
+
     .toolbar {
       display: grid;
       grid-template-columns: minmax(220px, 1.1fr) minmax(180px, .8fr) auto auto auto;
@@ -750,7 +829,10 @@
 
     body[data-theme="dark"] .empty,
     body[data-theme="dark"] .status,
+    body[data-theme="dark"] .update-status,
     body[data-theme="dark"] .file-name,
+    body[data-theme="dark"] .live-label,
+    body[data-theme="dark"] .live-value,
     body[data-theme="dark"] .achievements-subtitle,
     body[data-theme="dark"] .metric span,
     body[data-theme="dark"] .achievement-card p {
@@ -794,6 +876,22 @@
 
     body[data-theme="dark"] .drop.dragover {
       background: #162331;
+    }
+
+    body[data-theme="dark"] .update-panel {
+      background: #151b25;
+    }
+
+    body[data-theme="dark"] .update-pill {
+      background: #1a2230;
+      color: #c9d5e5;
+      border-color: #2b3442;
+    }
+
+    body[data-theme="dark"] .live-pill {
+      background: #1a2230;
+      color: #c9d5e5;
+      border-color: #2b3442;
     }
 
     body[data-theme="dark"] .achievement-summary .metric {
@@ -951,6 +1049,10 @@
         grid-template-columns: 1fr;
       }
 
+      .live-panel {
+        grid-template-columns: 1fr;
+      }
+
       .stats {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -973,6 +1075,14 @@
         <div>
           <h1>ToNSaveManager Analyzer</h1>
           <div class="status" id="status">JSONを選択</div>
+          <div class="update-panel">
+            <div class="update-label">Update</div>
+            <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.1</div>
+            <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
+            <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
+            <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
+          </div>
         </div>
         <button class="ghost" id="clearBtn" disabled title="クリア">⌫</button>
         <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
@@ -1009,6 +1119,15 @@
         <button id="exportJsonBtn" disabled title="JSON">JSON</button>
       </div>
     </header>
+
+    <section class="live-panel" aria-label="current round">
+      <div class="live-label">現在のラウンド</div>
+      <div class="live-value" id="liveRoundText">待機中</div>
+      <div class="live-pill" id="liveRoundType">--</div>
+      <div class="live-pill" id="liveMap">Map --</div>
+      <div class="live-pill" id="liveTerrorIds">TD --</div>
+      <div class="live-pill" id="liveResult">Result --</div>
+    </section>
 
     <section class="stats" aria-label="summary">
       <div class="metric"><b id="mRecords">0</b><span>Records</span></div>
@@ -1232,6 +1351,17 @@
     const state = {
       fileNames: [],
       records: [],
+      liveRecords: [],
+      liveCurrentRecord: null,
+      update: {
+        status: "idle",
+        currentVersion: "",
+        latestVersion: "",
+        downloadedVersion: "",
+        percent: 0,
+        error: "",
+        info: null
+      },
       filtered: [],
       selectedKey: "",
       theme: getSavedTheme(),
@@ -1290,7 +1420,17 @@
       mRecords: document.getElementById("mRecords"),
       mMaps: document.getElementById("mMaps"),
       mTerrors: document.getElementById("mTerrors"),
-      mWins: document.getElementById("mWins")
+      mWins: document.getElementById("mWins"),
+      updateStatusText: document.getElementById("updateStatusText"),
+      updateCurrentVersion: document.getElementById("updateCurrentVersion"),
+      updateLatestVersion: document.getElementById("updateLatestVersion"),
+      checkUpdateBtn: document.getElementById("checkUpdateBtn"),
+      installUpdateBtn: document.getElementById("installUpdateBtn"),
+      liveRoundText: document.getElementById("liveRoundText"),
+      liveRoundType: document.getElementById("liveRoundType"),
+      liveMap: document.getElementById("liveMap"),
+      liveTerrorIds: document.getElementById("liveTerrorIds"),
+      liveResult: document.getElementById("liveResult")
     };
 
     els.pickBtn.addEventListener("click", () => els.fileInput.click());
@@ -1327,6 +1467,8 @@
     els.clearBtn.addEventListener("click", reset);
     els.themeBtn.addEventListener("click", toggleTheme);
     els.rainbowBtn.addEventListener("click", toggleRainbowMode);
+    els.checkUpdateBtn.addEventListener("click", checkForUpdates);
+    els.installUpdateBtn.addEventListener("click", installUpdate);
     els.achievementsBtn.addEventListener("click", openAchievementsWindow);
     els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
     els.achievementsCloseBtn.addEventListener("click", () => window.close());
@@ -1340,11 +1482,20 @@
         .then(syncLiveLogState)
         .catch(() => {});
     }
+    if (window.tonsave && typeof window.tonsave.getUpdateState === "function") {
+      window.tonsave.getUpdateState()
+        .then(syncUpdateState)
+        .catch(() => {});
+    }
+    if (window.tonsave && typeof window.tonsave.onUpdateMessage === "function") {
+      window.tonsave.onUpdateMessage(handleUpdateMessage);
+    }
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
     updateRainbowButton();
     updateThemeButton();
+    renderUpdatePanel();
     if (isAchievementsView) {
       renderAchievementsView();
     }
@@ -1766,6 +1917,69 @@
       }
     }
 
+    function handleUpdateMessage(message) {
+      if (!message || !message.state) return;
+      syncUpdateState(message.state);
+    }
+
+    function syncUpdateState(snapshot = {}) {
+      state.update.status = value(snapshot.status || "idle");
+      state.update.currentVersion = value(snapshot.currentVersion || "");
+      state.update.latestVersion = value(snapshot.latestVersion || "");
+      state.update.downloadedVersion = value(snapshot.downloadedVersion || "");
+      state.update.percent = numberOrNull(snapshot.percent) || 0;
+      state.update.error = value(snapshot.error || "");
+      state.update.info = snapshot.info && typeof snapshot.info === "object" ? snapshot.info : null;
+      renderUpdatePanel();
+    }
+
+    function renderUpdatePanel() {
+      const update = state.update;
+      const latestVersion = update.downloadedVersion || update.latestVersion;
+      let text = "起動時に更新を確認します";
+      if (update.status === "checking") {
+        text = "更新を確認中...";
+      } else if (update.status === "available") {
+        text = latestVersion ? `${latestVersion} をダウンロード中...` : "更新をダウンロード中...";
+      } else if (update.status === "downloading") {
+        text = `ダウンロード中 ${update.percent.toFixed(1)}%`;
+      } else if (update.status === "downloaded") {
+        text = latestVersion ? `${latestVersion} を取得しました` : "更新を取得しました";
+      } else if (update.status === "none") {
+        text = "最新です";
+      } else if (update.status === "error") {
+        text = update.error ? `更新確認に失敗: ${update.error}` : "更新確認に失敗しました";
+      }
+
+      els.updateStatusText.textContent = text;
+      els.updateCurrentVersion.textContent = update.currentVersion ? `v${update.currentVersion}` : "v?";
+      els.updateLatestVersion.textContent = latestVersion ? `latest v${latestVersion}` : "latest --";
+      els.updateLatestVersion.classList.toggle("hidden", !latestVersion);
+      els.checkUpdateBtn.disabled = update.status === "checking" || update.status === "downloading";
+      els.installUpdateBtn.classList.toggle("hidden", update.status !== "downloaded");
+      els.installUpdateBtn.disabled = update.status !== "downloaded";
+    }
+
+    async function checkForUpdates() {
+      if (!window.tonsave || typeof window.tonsave.checkForUpdates !== "function") return;
+      try {
+        const snapshot = await window.tonsave.checkForUpdates();
+        if (snapshot) syncUpdateState(snapshot);
+      } catch (error) {
+        syncUpdateState({
+          status: "error",
+          error: error && error.message ? error.message : String(error || "更新確認に失敗しました")
+        });
+      } finally {
+        renderUpdatePanel();
+      }
+    }
+
+    async function installUpdate() {
+      if (!window.tonsave || typeof window.tonsave.installUpdate !== "function") return;
+      await window.tonsave.installUpdate();
+    }
+
     function handleLogMessage(message) {
       if (!message || !message.state) return;
       syncLiveLogState(message.state);
@@ -1792,29 +2006,91 @@
       liveLogState.lastAddress = value(snapshot.lastAddress);
       liveLogState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
       liveLogState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
+      state.liveCurrentRecord = normalizeLiveRecord(snapshot.liveRecord || null);
+      state.liveRecords = Array.isArray(snapshot.liveRecords)
+        ? snapshot.liveRecords.map(normalizeLiveRecord).filter(Boolean)
+        : [];
+      renderLivePanel();
 
       if (!isAchievementsView && window.TonAchievements) {
-        const record = buildLiveRecord();
-        window.TonAchievements.scan([record], window.tonsave && window.tonsave.oscSend);
+        window.TonAchievements.scan(getAchievementRecords(), window.tonsave && window.tonsave.oscSend);
         renderAchievementsView();
       }
     }
 
-    function buildLiveRecord() {
+    function normalizeLiveRecord(record) {
+      if (!record || typeof record !== "object") return null;
+      const terrorData = Array.isArray(record.terrorData)
+        ? record.terrorData.map(item => ({
+            ...(item && typeof item === "object" ? item : {}),
+            i: numberOrNull(item && item.i)
+          })).filter(item => item.i !== null)
+        : [];
       return {
-        note: liveLogState.note,
-        itemName: liveLogState.itemName || "",
-        roundType: liveLogState.roundType,
-        roundTypeLabel: liveLogState.roundTypeLabel,
-        mapId: liveLogState.mapId,
-        mapName: liveLogState.mapName,
-        playerCount: liveLogState.playerCount,
-        terrorCount: liveLogState.terrorCount,
-        terrorData: liveLogState.terrorData,
-        result: liveLogState.result,
-        terrorLabels: [],
-        terrorComposition: ""
+        recordKey: value(record.recordKey || ""),
+        sourceIndex: numberOrNull(record.sourceIndex) ?? 0,
+        sourceFileIndex: numberOrNull(record.sourceFileIndex) ?? Number.MAX_SAFE_INTEGER,
+        sourceFile: value(record.sourceFile || ""),
+        timestamp: value(record.timestamp || ""),
+        note: value(record.note || ""),
+        itemName: value(record.itemName || ""),
+        mapId: numberOrNull(record.mapId),
+        mapName: value(record.mapName || ""),
+        rawRoundType: numberOrNull(record.rawRoundType ?? record.roundType),
+        roundType: numberOrNull(record.roundType),
+        roundTypeExtra: value(record.roundTypeExtra || ""),
+        playerCount: numberOrNull(record.playerCount),
+        players: Array.isArray(record.players) ? record.players.map(value) : [],
+        terrorData,
+        terrorLabels: Array.isArray(record.terrorLabels) ? record.terrorLabels.map(value) : [],
+        terrorCount: numberOrNull(record.terrorCount) ?? terrorData.length,
+        expectedTerrorCount: numberOrNull(record.expectedTerrorCount),
+        terrorComposition: value(record.terrorComposition || ""),
+        result: numberOrNull(record.result),
+        errors: value(record.errors || ""),
+        content: value(record.content || ""),
+        contentLength: numberOrNull(record.contentLength) ?? 0,
+        raw: record.raw && typeof record.raw === "object" ? { ...record.raw } : {}
       };
+    }
+
+    function getAchievementRecords() {
+      const liveRecords = Array.isArray(state.liveRecords) ? state.liveRecords : [];
+      return [...state.records, ...liveRecords];
+    }
+
+    function renderLivePanel() {
+      const record = state.liveCurrentRecord;
+      const hasRound = Boolean(
+        record && (
+          record.note ||
+          record.mapId !== null ||
+          record.roundType !== null ||
+          record.playerCount !== null ||
+          (Array.isArray(record.terrorData) && record.terrorData.length) ||
+          record.result !== null
+        )
+      );
+      els.liveRoundText.textContent = hasRound
+        ? [
+            record.note || "(blank)",
+            record.mapName ? `@ ${record.mapName}` : "",
+            record.playerCount !== null ? `${record.playerCount}人` : "",
+            record.terrorCount !== null ? `${record.terrorCount}体` : ""
+          ].filter(Boolean).join(" / ")
+        : "待機中";
+      els.liveRoundType.textContent = record && record.roundType !== null
+        ? formatRoundType(record.roundType)
+        : "--";
+      els.liveMap.textContent = record && record.mapId !== null
+        ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
+        : "Map --";
+      els.liveTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
+        ? `TD ${formatTerrorIds(record.terrorData)}`
+        : "TD --";
+      els.liveResult.textContent = record && record.result !== null
+        ? (record.result === 1 ? "Result Win" : "Result Lose")
+        : "Result --";
     }
 
     function readAchievementState() {
@@ -1862,7 +2138,7 @@
       if (!els.achievementsGrid) return;
       const { catalog, unlocked } = readAchievementState();
       const progressList = window.TonAchievements && typeof window.TonAchievements.progress === "function"
-        ? window.TonAchievements.progress(state.records)
+        ? window.TonAchievements.progress(getAchievementRecords())
         : [];
       const progressMap = new Map(progressList.map(item => [item.id, item]));
       const unlockedCount = catalog.filter(item => unlocked.has(item.id)).length;
@@ -2173,6 +2449,8 @@
     function reset() {
       state.fileNames = [];
       state.records = [];
+      state.liveRecords = [];
+      state.liveCurrentRecord = null;
       state.filtered = [];
       state.selectedKey = "";
       els.fileInput.value = "";
@@ -2188,7 +2466,9 @@
       applyRainbowMode(state.rainbowMode);
       updateRainbowButton();
       updateThemeButton();
+      renderUpdatePanel();
       updateStats();
+      renderLivePanel();
       render();
       renderAchievementsView();
     }

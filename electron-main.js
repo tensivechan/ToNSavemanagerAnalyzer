@@ -17,6 +17,19 @@ let logPollTimer = null;
 let activeLogFile = "";
 let activeLogOffset = 0;
 let activeLogRemainder = "";
+let liveRoundHistory = [];
+let liveRoundSequence = 0;
+let liveRoundFinalizedKey = "";
+const updateState = {
+  status: "idle",
+  currentVersion: "",
+  latestVersion: "",
+  downloadedVersion: "",
+  percent: 0,
+  info: null,
+  error: ""
+};
+updateState.currentVersion = app.getVersion();
 const oscLiveState = {
   note: "",
   roundType: null,
@@ -79,6 +92,28 @@ function broadcastLogMessage(message) {
       win.webContents.send("log:message", message);
     }
   }
+}
+
+function broadcastUpdateMessage(message) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("update:message", message);
+    }
+  }
+}
+
+function snapshotUpdateState() {
+  return {
+    ...updateState
+  };
+}
+
+function setUpdateState(partial = {}) {
+  Object.assign(updateState, partial);
+  broadcastUpdateMessage({
+    state: snapshotUpdateState(),
+    receivedAt: Date.now()
+  });
 }
 
 function getVrcLogDirectory() {
@@ -189,7 +224,7 @@ function parseLogLine(line) {
   }
 
   if (/^RoundOver$/i.test(text) || /^Round was valid\.$/i.test(text) || /^Verified Round End$/i.test(text)) {
-    return { raw: text };
+    return { raw: text, finalize: true };
   }
 
   if (/^Lived in round\.$/i.test(text)) {
@@ -249,10 +284,21 @@ function processLogChunk(chunk, state = {}) {
   let changed = false;
 
   for (const line of lines) {
+    let lineChanged = false;
+    if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(line)) {
+      if (finalizeLiveRound()) {
+        lineChanged = true;
+      }
+    }
     const update = parseLogLine(line);
     if (!update) continue;
     const didChange = applyLiveOscRecord(update);
-    if (didChange) {
+    if (update.finalize) {
+      if (finalizeLiveRound()) {
+        lineChanged = true;
+      }
+    }
+    if (didChange || lineChanged) {
       changed = true;
       if (emit) {
         broadcastLogMessage({
@@ -328,6 +374,9 @@ function stopLogWatcher() {
   activeLogFile = "";
   activeLogOffset = 0;
   activeLogRemainder = "";
+  liveRoundHistory = [];
+  liveRoundSequence = 0;
+  liveRoundFinalizedKey = "";
 }
 
 function coerceNumber(value) {
@@ -453,6 +502,7 @@ function parseOscPacket(buffer, offset = 0) {
 }
 
 function snapshotOscState() {
+  const liveRecord = buildLiveRoundRecord();
   return {
     note: oscLiveState.note,
     roundType: oscLiveState.roundType,
@@ -466,8 +516,93 @@ function snapshotOscState() {
     result: oscLiveState.result,
     lastAddress: oscLiveState.lastAddress,
     lastMessageAt: oscLiveState.lastMessageAt,
+    raw: { ...oscLiveState.raw },
+    liveRecord,
+    liveRecords: liveRoundHistory.map(record => cloneLiveRoundRecord(record))
+  };
+}
+
+function cloneLiveRoundRecord(record) {
+  return {
+    ...record,
+    terrorData: Array.isArray(record.terrorData) ? record.terrorData.map(item => ({ ...item })) : [],
+    terrorLabels: Array.isArray(record.terrorLabels) ? [...record.terrorLabels] : [],
+    players: Array.isArray(record.players) ? [...record.players] : [],
+    raw: record.raw && typeof record.raw === "object" ? { ...record.raw } : {}
+  };
+}
+
+function buildLiveRoundRecord() {
+  const terrorData = Array.isArray(oscLiveState.terrorData)
+    ? oscLiveState.terrorData.map(item => ({ ...item }))
+    : [];
+  return {
+    recordKey: `live:${liveRoundSequence}`,
+    sourceIndex: liveRoundSequence,
+    sourceFileIndex: Number.MAX_SAFE_INTEGER,
+    sourceFile: activeLogFile,
+    timestamp: new Date(oscLiveState.lastMessageAt || Date.now()).toISOString(),
+    note: oscLiveState.note,
+    itemName: "",
+    mapId: oscLiveState.mapId,
+    mapName: oscLiveState.mapName,
+    rawRoundType: oscLiveState.roundType,
+    roundType: oscLiveState.roundType,
+    roundTypeExtra: oscLiveState.roundTypeLabel,
+    playerCount: oscLiveState.playerCount,
+    players: [],
+    terrorData,
+    terrorLabels: terrorData
+      .map(item => {
+        const id = Number(item && item.i);
+        return Number.isFinite(id) ? String(id) : "";
+      })
+      .filter(Boolean),
+    terrorCount: Number.isFinite(oscLiveState.terrorCount) ? oscLiveState.terrorCount : terrorData.length,
+    expectedTerrorCount: expectedTerrorCount(oscLiveState.roundType),
+    terrorComposition: terrorComposition(oscLiveState.roundType, terrorData),
+    result: oscLiveState.result,
+    errors: "",
+    content: "",
+    contentLength: 0,
     raw: { ...oscLiveState.raw }
   };
+}
+
+function roundFingerprint(record) {
+  if (!record) return "";
+  const terrorIds = Array.isArray(record.terrorData)
+    ? record.terrorData.map(item => Number(item && item.i)).filter(Number.isFinite).join(",")
+    : "";
+  return [
+    record.note || "",
+    record.mapId ?? "",
+    record.roundType ?? "",
+    record.roundTypeExtra || "",
+    record.playerCount ?? "",
+    terrorIds,
+    record.result ?? ""
+  ].join("|");
+}
+
+function finalizeLiveRound() {
+  const record = buildLiveRoundRecord();
+  const hasContent =
+    record.note ||
+    record.mapId !== null && record.mapId !== undefined ||
+    record.roundType !== null && record.roundType !== undefined ||
+    record.playerCount !== null && record.playerCount !== undefined ||
+    record.terrorData.length > 0 ||
+    record.result !== null && record.result !== undefined;
+  if (!hasContent) return false;
+  const key = roundFingerprint(record);
+  if (!key || key === liveRoundFinalizedKey) return false;
+  liveRoundFinalizedKey = key;
+  liveRoundSequence += 1;
+  record.recordKey = `live:${liveRoundSequence}`;
+  record.sourceIndex = liveRoundSequence;
+  liveRoundHistory.push(cloneLiveRoundRecord(record));
+  return true;
 }
 
 function applyLiveOscRecord(partial = {}) {
@@ -484,6 +619,9 @@ function applyLiveOscRecord(partial = {}) {
     oscLiveState.terrorData = [];
     oscLiveState.result = null;
     oscLiveState.raw = {};
+    liveRoundHistory = [];
+    liveRoundSequence = 0;
+    liveRoundFinalizedKey = "";
     changed = true;
   }
 
@@ -795,32 +933,80 @@ function setupAutoUpdater() {
   if (!autoUpdater) return;
 
   autoUpdater.autoDownload = true;
+  updateState.currentVersion = app.getVersion();
+  setUpdateState({
+    status: "idle",
+    currentVersion: app.getVersion(),
+    latestVersion: "",
+    downloadedVersion: "",
+    percent: 0,
+    info: null,
+    error: ""
+  });
   autoUpdater.on("checking-for-update", () => {
     log.info("Checking for updates...");
+    setUpdateState({
+      status: "checking",
+      currentVersion: app.getVersion(),
+      error: ""
+    });
   });
 
   autoUpdater.on("update-available", info => {
     log.info("Update available", info && info.version ? info.version : "");
+    setUpdateState({
+      status: "available",
+      latestVersion: info && info.version ? String(info.version) : "",
+      info: info || null,
+      error: ""
+    });
   });
 
   autoUpdater.on("update-not-available", info => {
     log.info("No update available", info && info.version ? info.version : "");
+    setUpdateState({
+      status: "none",
+      latestVersion: info && info.version ? String(info.version) : "",
+      info: info || null,
+      percent: 0,
+      error: ""
+    });
   });
 
   autoUpdater.on("download-progress", progress => {
     log.info(`Update download progress: ${progress.percent.toFixed(1)}%`);
+    setUpdateState({
+      status: "downloading",
+      percent: Number(progress && progress.percent) || 0,
+      info: progress || null,
+      error: ""
+    });
   });
 
-  autoUpdater.on("update-downloaded", () => {
-    autoUpdater.quitAndInstall();
+  autoUpdater.on("update-downloaded", info => {
+    setUpdateState({
+      status: "downloaded",
+      downloadedVersion: info && info.version ? String(info.version) : updateState.latestVersion,
+      info: info || null,
+      percent: 100,
+      error: ""
+    });
   });
 
   autoUpdater.on("error", error => {
     log.error("Auto update error", error);
+    setUpdateState({
+      status: "error",
+      error: error && error.message ? error.message : String(error || "Update error")
+    });
   });
 
   autoUpdater.checkForUpdates().catch(error => {
     log.error("Update check failed", error);
+    setUpdateState({
+      status: "error",
+      error: error && error.message ? error.message : String(error || "Update check failed")
+    });
   });
 }
 
@@ -831,6 +1017,34 @@ ipcMain.handle("osc:send", async (_event, message) => {
 
 ipcMain.handle("log:get-state", () => snapshotOscState());
 ipcMain.handle("osc:get-state", () => snapshotOscState());
+ipcMain.handle("update:get-state", () => snapshotUpdateState());
+ipcMain.handle("update:check", async () => {
+  if (!autoUpdater) {
+    return snapshotUpdateState();
+  }
+  setUpdateState({
+    status: "checking",
+    currentVersion: app.getVersion(),
+    error: ""
+  });
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    log.error("Manual update check failed", error);
+    setUpdateState({
+      status: "error",
+      error: error && error.message ? error.message : String(error || "Update check failed")
+    });
+  }
+  return snapshotUpdateState();
+});
+ipcMain.handle("update:install", async () => {
+  if (!autoUpdater || updateState.status !== "downloaded") {
+    return false;
+  }
+  autoUpdater.quitAndInstall(false, true);
+  return true;
+});
 
 ipcMain.handle("ui:open-achievements", () => {
   createAchievementsWindow();

@@ -7,6 +7,15 @@ contextBridge.exposeInMainWorld("tonsave", {
   getLogState() {
     return ipcRenderer.invoke("log:get-state");
   },
+  getUpdateState() {
+    return ipcRenderer.invoke("update:get-state");
+  },
+  checkForUpdates() {
+    return ipcRenderer.invoke("update:check");
+  },
+  installUpdate() {
+    return ipcRenderer.invoke("update:install");
+  },
   openAchievements() {
     return ipcRenderer.invoke("ui:open-achievements");
   },
@@ -16,6 +25,14 @@ contextBridge.exposeInMainWorld("tonsave", {
     ipcRenderer.on("log:message", handler);
     return () => {
       ipcRenderer.removeListener("log:message", handler);
+    };
+  },
+  onUpdateMessage(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on("update:message", handler);
+    return () => {
+      ipcRenderer.removeListener("update:message", handler);
     };
   }
 });
