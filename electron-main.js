@@ -121,7 +121,22 @@ function getVrcLogDirectory() {
 }
 
 function isOutputLogFile(name) {
-  return /^output_log.*\.txt$/i.test(String(name || ""));
+  return /^output_log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$/i.test(String(name || ""));
+}
+
+function parseOutputLogStamp(name) {
+  const match = String(name || "").match(/^output_log_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.txt$/i);
+  if (!match) return Number.NEGATIVE_INFINITY;
+  const [, year, month, day, hour, minute, second] = match;
+  const stamp = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second)
+  );
+  return Number.isFinite(stamp) ? stamp : Number.NEGATIVE_INFINITY;
 }
 
 async function findLatestLogFile() {
@@ -133,9 +148,15 @@ async function findLatestLogFile() {
       if (!entry.isFile() || !isOutputLogFile(entry.name)) continue;
       const fullPath = path.join(dir, entry.name);
       const stat = await fs.promises.stat(fullPath);
-      if (!latest || stat.mtimeMs > latest.mtimeMs || (stat.mtimeMs === latest.mtimeMs && stat.size > latest.size)) {
+      const fileStamp = parseOutputLogStamp(entry.name);
+      if (
+        !latest ||
+        fileStamp > latest.fileStamp ||
+        (fileStamp === latest.fileStamp && (stat.mtimeMs > latest.mtimeMs || (stat.mtimeMs === latest.mtimeMs && stat.size > latest.size)))
+      ) {
         latest = {
           path: fullPath,
+          fileStamp,
           mtimeMs: stat.mtimeMs,
           size: stat.size
         };
@@ -205,7 +226,7 @@ function parseLogLine(line) {
     return update;
   }
 
-  const killersMatch = text.match(/Killers have been set - ([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
+  const killersMatch = text.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
   if (killersMatch) {
     const terrorData = killersMatch[1]
       .trim()
@@ -321,7 +342,7 @@ async function refreshLogTail() {
 
   if (latest.path !== activeLogFile) {
     activeLogFile = latest.path;
-    activeLogOffset = latest.size;
+    activeLogOffset = 0;
     activeLogRemainder = "";
     applyLiveOscRecord({ reset: true });
     broadcastLogMessage({

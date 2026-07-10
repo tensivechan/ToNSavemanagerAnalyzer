@@ -1663,7 +1663,7 @@
           continue;
         }
 
-        const killers = line.match(/Killers have been set - ([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
+        const killers = line.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
         if (killers) {
           current = ensureCurrent(timestamp);
           current.terrorData = killers[1]
