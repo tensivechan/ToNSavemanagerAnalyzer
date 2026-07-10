@@ -5,6 +5,7 @@ const path = require("path");
 log.transports.file.level = "info";
 
 let autoUpdater = null;
+let mainWindow = null;
 try {
   ({ autoUpdater } = require("electron-updater"));
   autoUpdater.logger = log;
@@ -18,7 +19,7 @@ const iconPath = app.isPackaged
   : path.join(__dirname, "assets", "app-icon.ico");
 
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 980,
     minWidth: 1100,
@@ -33,12 +34,29 @@ function createWindow() {
     }
   });
 
-  win.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"));
-  return win;
+  mainWindow.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"));
+  return mainWindow;
 }
 
 function setupAutoUpdater() {
   if (!autoUpdater) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.on("checking-for-update", () => {
+    log.info("Checking for updates...");
+  });
+
+  autoUpdater.on("update-available", info => {
+    log.info("Update available", info && info.version ? info.version : "");
+  });
+
+  autoUpdater.on("update-not-available", info => {
+    log.info("No update available", info && info.version ? info.version : "");
+  });
+
+  autoUpdater.on("download-progress", progress => {
+    log.info(`Update download progress: ${progress.percent.toFixed(1)}%`);
+  });
 
   autoUpdater.on("update-downloaded", () => {
     autoUpdater.quitAndInstall();
@@ -48,7 +66,7 @@ function setupAutoUpdater() {
     log.error("Auto update error", error);
   });
 
-  autoUpdater.checkForUpdatesAndNotify().catch(error => {
+  autoUpdater.checkForUpdates().catch(error => {
     log.error("Update check failed", error);
   });
 }
