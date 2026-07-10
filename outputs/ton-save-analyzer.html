@@ -17,6 +17,8 @@
       --soft: #e8f2ef;
       --warn: #fff0d6;
       --bad: #ffe2df;
+      --page-bg-a: rgba(19, 111, 99, .08);
+      --page-bg-b: transparent;
       --bloodbath: #ffe7e5;
       --bloodbath-hover: #ffd9d5;
       --rt-red: #ffe1e1;
@@ -62,14 +64,91 @@
       font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f1218;
+      --panel: #181d26;
+      --ink: #e8eef7;
+      --muted: #9aa5b6;
+      --line: #2b3442;
+      --accent: #61d4c3;
+      --accent-2: #ff7d75;
+      --accent-3: #8aa5ff;
+      --soft: #17262a;
+      --warn: #3b2f19;
+      --bad: #3a1b1b;
+      --page-bg-a: rgba(97, 212, 195, .12);
+      --page-bg-b: rgba(15, 18, 24, .03);
+      --bloodbath: #341c1a;
+      --bloodbath-hover: #3d211f;
+      --rt-red: #382024;
+      --rt-red-hover: #45272b;
+      --rt-red-selected: #503036;
+      --rt-green: #183123;
+      --rt-green-hover: #1b3a29;
+      --rt-green-selected: #20462f;
+      --rt-gray: #232932;
+      --rt-gray-hover: #2a313d;
+      --rt-gray-selected: #313949;
+      --rt-cyan: #162d34;
+      --rt-cyan-hover: #1a3640;
+      --rt-cyan-selected: #21404d;
+      --rt-blue: #18253a;
+      --rt-blue-hover: #1c2d45;
+      --rt-blue-selected: #223656;
+      --rt-bloodmoon: #392026;
+      --rt-bloodmoon-hover: #43252d;
+      --rt-bloodmoon-selected: #4d2b34;
+      --rt-yellow: #3a3217;
+      --rt-yellow-hover: #463c1b;
+      --rt-yellow-selected: #51461f;
+      --rt-amber: #342b17;
+      --rt-amber-hover: #40311a;
+      --rt-amber-selected: #4a381d;
+      --rt-sun: #2f3516;
+      --rt-sun-hover: #38411b;
+      --rt-sun-selected: #424c20;
+      --rt-midnight: #342325;
+      --rt-midnight-hover: #40282c;
+      --rt-midnight-selected: #4b2f33;
+      --rt-brown: #30261d;
+      --rt-brown-hover: #3a2f23;
+      --rt-brown-selected: #44362a;
+      --rt-purple: #2f2438;
+      --rt-purple-hover: #382845;
+      --rt-purple-selected: #422f52;
+      --rt-gigabyte-blue: #182642;
+      --rt-gigabyte-red: #3b1c24;
+      --shadow: 0 10px 26px rgba(0, 0, 0, .38);
+    }
+
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
       background:
-        linear-gradient(180deg, rgba(19, 111, 99, .08), transparent 260px),
+        linear-gradient(180deg, var(--page-bg-a), var(--page-bg-b) 260px),
         var(--bg);
       color: var(--ink);
+      transition: background .25s ease, color .25s ease;
+    }
+
+    body.rainbow-mode {
+      --page-bg-a: rgba(255, 77, 136, .14);
+      --page-bg-b: rgba(77, 192, 255, .10);
+      --accent: #ff4d88;
+      --accent-2: #ff9f1c;
+      --accent-3: #4dc0ff;
+    }
+
+    body.rainbow-mode .app {
+      animation: rainbowHue 9s linear infinite;
+      filter: saturate(1.25) hue-rotate(0deg);
+    }
+
+    @keyframes rainbowHue {
+      from { filter: saturate(1.25) hue-rotate(0deg); }
+      to { filter: saturate(1.25) hue-rotate(360deg); }
     }
 
     button, input, select, textarea {
@@ -564,6 +643,57 @@
 
     .hidden { display: none !important; }
 
+    body[data-theme="dark"] button,
+    body[data-theme="dark"] .drop,
+    body[data-theme="dark"] .metric,
+    body[data-theme="dark"] .section,
+    body[data-theme="dark"] .field input,
+    body[data-theme="dark"] .field select,
+    body[data-theme="dark"] textarea {
+      background-color: var(--panel);
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    body[data-theme="dark"] .drop {
+      background: rgba(24, 29, 38, .95);
+    }
+
+    body[data-theme="dark"] .ghost {
+      background: transparent;
+    }
+
+    body[data-theme="dark"] .primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #08151a;
+    }
+
+    body[data-theme="dark"] .metric {
+      background: rgba(24, 29, 38, .88);
+    }
+
+    body[data-theme="dark"] header {
+      background: transparent;
+    }
+
+    body[data-theme="dark"] .section-head,
+    body[data-theme="dark"] th {
+      background: #141922;
+    }
+
+    body[data-theme="dark"] tr:hover td {
+      background: #18202a;
+    }
+
+    body[data-theme="dark"] tr.selected td {
+      background: #162329;
+    }
+
+    body[data-theme="dark"] button:hover {
+      border-color: #49566a;
+    }
+
     @media (max-width: 980px) {
       .toolbar {
         grid-template-columns: 1fr 1fr;
@@ -611,6 +741,8 @@
           <div class="status" id="status">JSONを選択</div>
         </div>
         <button class="ghost" id="clearBtn" disabled title="クリア">⌫</button>
+        <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
+        <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
       </div>
 
       <div class="toolbar">
@@ -811,7 +943,10 @@
       fileNames: [],
       records: [],
       filtered: [],
-      selectedKey: ""
+      selectedKey: "",
+      theme: getSavedTheme(),
+      rainbowUnlocked: localStorage.getItem("tonsave-rainbow-unlocked") === "1",
+      rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1"
     };
 
     const els = {
@@ -827,6 +962,8 @@
       exportCsvBtn: document.getElementById("exportCsvBtn"),
       exportJsonBtn: document.getElementById("exportJsonBtn"),
       clearBtn: document.getElementById("clearBtn"),
+      themeBtn: document.getElementById("themeBtn"),
+      rainbowBtn: document.getElementById("rainbowBtn"),
       recordsBody: document.getElementById("recordsBody"),
       emptyState: document.getElementById("emptyState"),
       visibleCount: document.getElementById("visibleCount"),
@@ -870,6 +1007,13 @@
     els.exportCsvBtn.addEventListener("click", exportCsv);
     els.exportJsonBtn.addEventListener("click", exportJson);
     els.clearBtn.addEventListener("click", reset);
+    els.themeBtn.addEventListener("click", toggleTheme);
+    els.rainbowBtn.addEventListener("click", toggleRainbowMode);
+
+    applyTheme(state.theme);
+    applyRainbowMode(state.rainbowMode);
+    updateRainbowButton();
+    updateThemeButton();
 
     async function readFiles(files) {
       const settled = await Promise.allSettled(files.map(readFile));
@@ -1015,7 +1159,10 @@
     }
 
     function applyFilters() {
-      const q = els.searchInput.value.trim().toLowerCase();
+      const rawQuery = els.searchInput.value.trim();
+      const isRainbowCommand = rawQuery.toLowerCase() === "rainbow";
+      if (isRainbowCommand) unlockRainbow();
+      const q = isRainbowCommand ? "" : rawQuery.toLowerCase();
       const roundType = els.roundTypeFilter.value;
       const hideBlank = els.hideBlankToggle.checked;
       state.filtered = state.records.filter(record => {
@@ -1058,6 +1205,55 @@
       } else {
         els.roundTypeFilter.value = "all";
       }
+    }
+
+    function getSavedTheme() {
+      const saved = localStorage.getItem("tonsave-theme");
+      if (saved === "light" || saved === "dark") return saved;
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+
+    function applyTheme(theme) {
+      state.theme = theme === "dark" ? "dark" : "light";
+      document.body.dataset.theme = state.theme === "dark" ? "dark" : "light";
+      localStorage.setItem("tonsave-theme", state.theme);
+      updateThemeButton();
+    }
+
+    function toggleTheme() {
+      applyTheme(state.theme === "dark" ? "light" : "dark");
+    }
+
+    function updateThemeButton() {
+      els.themeBtn.textContent = state.theme === "dark" ? "☀" : "☾";
+      els.themeBtn.title = state.theme === "dark" ? "ライトモード" : "ダークモード";
+      els.themeBtn.setAttribute("aria-label", els.themeBtn.title);
+    }
+
+    function unlockRainbow() {
+      if (state.rainbowUnlocked) return;
+      state.rainbowUnlocked = true;
+      localStorage.setItem("tonsave-rainbow-unlocked", "1");
+      updateRainbowButton();
+    }
+
+    function updateRainbowButton() {
+      const show = state.rainbowUnlocked;
+      els.rainbowBtn.classList.toggle("hidden", !show);
+      els.rainbowBtn.setAttribute("aria-hidden", show ? "false" : "true");
+    }
+
+    function applyRainbowMode(enabled) {
+      state.rainbowMode = Boolean(enabled);
+      document.body.classList.toggle("rainbow-mode", state.rainbowMode);
+      localStorage.setItem("tonsave-rainbow-mode", state.rainbowMode ? "1" : "0");
+      els.rainbowBtn.setAttribute("aria-pressed", state.rainbowMode ? "true" : "false");
+      els.rainbowBtn.textContent = state.rainbowMode ? "🌈" : "🌈";
+      els.rainbowBtn.title = state.rainbowMode ? "Rainbow off" : "Rainbow on";
+    }
+
+    function toggleRainbowMode() {
+      applyRainbowMode(!state.rainbowMode);
     }
 
     function updateStats() {
@@ -1339,11 +1535,15 @@
       els.fileName.textContent = "ファイル未選択";
       els.status.textContent = "JSONを選択";
       els.searchInput.value = "";
+      state.rainbowMode = localStorage.getItem("tonsave-rainbow-mode") === "1";
       els.roundTypeFilter.innerHTML = '<option value="all">全RoundType</option><option value="classicSpecial">クラシック特殊3体</option>';
       els.roundTypeFilter.value = "all";
       els.sortFilter.value = "raw";
       els.hideBlankToggle.checked = true;
       setEnabled(false);
+      applyRainbowMode(state.rainbowMode);
+      updateRainbowButton();
+      updateThemeButton();
       updateStats();
       render();
     }

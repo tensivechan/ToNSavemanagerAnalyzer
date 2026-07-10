@@ -1,7 +1,7 @@
 {
   "name": "ton-save-analyzer",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "ToNSaveManager analyzer desktop app",
   "main": "electron-main.js",
   "scripts": {
