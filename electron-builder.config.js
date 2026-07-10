@@ -12,7 +12,9 @@ module.exports = {
   asar: true,
   files: [
     "electron-main.js",
+    "preload.js",
     "outputs/ton-save-analyzer.html",
+    "scripts/achievement-engine.js",
     "package.json"
   ],
   extraFiles: [

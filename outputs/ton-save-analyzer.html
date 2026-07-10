@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    document.documentElement.dataset.view =
+      new URLSearchParams(location.search).get("view") === "achievements"
+        ? "achievements"
+        : "app";
+  </script>
   <title>ToNSaveManager Analyzer</title>
   <style>
     :root {
@@ -182,6 +188,22 @@
       min-height: 100vh;
       display: grid;
       grid-template-rows: auto auto 1fr;
+    }
+
+    .achievements-shell {
+      min-height: 100vh;
+      display: none;
+      grid-template-rows: auto auto 1fr;
+      gap: 16px;
+      padding: 22px clamp(16px, 3vw, 32px) 28px;
+    }
+
+    html[data-view="achievements"] .app {
+      display: none;
+    }
+
+    html[data-view="achievements"] .achievements-shell {
+      display: grid;
     }
 
     header {
@@ -694,6 +716,111 @@
       border-color: #49566a;
     }
 
+    .achievements-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding-bottom: 2px;
+    }
+
+    .achievements-title {
+      display: grid;
+      gap: 6px;
+    }
+
+    .achievements-title h1 {
+      margin: 0;
+      font-size: clamp(26px, 3vw, 36px);
+      line-height: 1.05;
+    }
+
+    .achievements-subtitle {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .achievement-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 12px;
+    }
+
+    .achievement-summary .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .achievement-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .achievement-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 13px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 8px;
+    }
+
+    .achievement-card.unlocked {
+      border-color: rgba(19, 111, 99, .35);
+      box-shadow: 0 10px 24px rgba(19, 111, 99, .12);
+    }
+
+    .achievement-card.locked {
+      opacity: .72;
+    }
+
+    .achievement-card h2 {
+      font-size: 15px;
+      margin: 0;
+    }
+
+    .achievement-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .achievement-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .achievement-tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      background: rgba(255,255,255,.65);
+    }
+
+    .achievement-tag.ok {
+      background: var(--soft);
+      color: #0f554d;
+      border-color: rgba(19, 111, 99, .18);
+    }
+
+    .achievement-tag.no {
+      background: var(--warn);
+      color: #7b4c00;
+      border-color: #f1d097;
+    }
+
     @media (max-width: 980px) {
       .toolbar {
         grid-template-columns: 1fr 1fr;
@@ -743,6 +870,7 @@
         <button class="ghost" id="clearBtn" disabled title="クリア">⌫</button>
         <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
         <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
+        <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
       </div>
 
       <div class="toolbar">
@@ -821,6 +949,29 @@
     </main>
   </div>
 
+  <div class="achievements-shell" id="achievementsShell">
+    <div class="achievements-head">
+      <div class="achievements-title">
+        <h1>Achievements</h1>
+        <div class="achievements-subtitle" id="achievementsSubtitle">実績を読み込み中</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="ghost" id="achievementsRefreshBtn" type="button" title="更新">↻</button>
+        <button class="ghost" id="achievementsCloseBtn" type="button" title="閉じる">✕</button>
+      </div>
+    </div>
+
+    <section class="achievement-summary" aria-label="achievement summary">
+      <div class="metric"><b id="aUnlocked">0</b><span>Unlocked</span></div>
+      <div class="metric"><b id="aTotal">0</b><span>Total</span></div>
+      <div class="metric"><b id="aPending">0</b><span>Pending</span></div>
+      <div class="metric"><b id="aOsc">0</b><span>OSC</span></div>
+    </section>
+
+    <div class="achievement-grid" id="achievementsGrid"></div>
+  </div>
+
+  <script src="../scripts/achievement-engine.js"></script>
   <script>
     const knownTerrors = new Map([
       [0, "The Meatball Man / Huggy"], [2, "Demented Spongebob"], [4, "HER"],
@@ -949,6 +1100,8 @@
       rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1"
     };
 
+    const isAchievementsView = document.documentElement.dataset.view === "achievements";
+
     const els = {
       fileInput: document.getElementById("fileInput"),
       pickBtn: document.getElementById("pickBtn"),
@@ -964,11 +1117,21 @@
       clearBtn: document.getElementById("clearBtn"),
       themeBtn: document.getElementById("themeBtn"),
       rainbowBtn: document.getElementById("rainbowBtn"),
+      achievementsBtn: document.getElementById("achievementsBtn"),
       recordsBody: document.getElementById("recordsBody"),
       emptyState: document.getElementById("emptyState"),
       visibleCount: document.getElementById("visibleCount"),
       detailBody: document.getElementById("detailBody"),
       detailBadge: document.getElementById("detailBadge"),
+      achievementsShell: document.getElementById("achievementsShell"),
+      achievementsSubtitle: document.getElementById("achievementsSubtitle"),
+      achievementsRefreshBtn: document.getElementById("achievementsRefreshBtn"),
+      achievementsCloseBtn: document.getElementById("achievementsCloseBtn"),
+      achievementsGrid: document.getElementById("achievementsGrid"),
+      aUnlocked: document.getElementById("aUnlocked"),
+      aTotal: document.getElementById("aTotal"),
+      aPending: document.getElementById("aPending"),
+      aOsc: document.getElementById("aOsc"),
       mRecords: document.getElementById("mRecords"),
       mMaps: document.getElementById("mMaps"),
       mTerrors: document.getElementById("mTerrors"),
@@ -1009,11 +1172,19 @@
     els.clearBtn.addEventListener("click", reset);
     els.themeBtn.addEventListener("click", toggleTheme);
     els.rainbowBtn.addEventListener("click", toggleRainbowMode);
+    els.achievementsBtn.addEventListener("click", openAchievementsWindow);
+    els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
+    els.achievementsCloseBtn.addEventListener("click", () => window.close());
+    window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
+    window.addEventListener("storage", renderAchievementsView);
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
     updateRainbowButton();
     updateThemeButton();
+    if (isAchievementsView) {
+      renderAchievementsView();
+    }
 
     async function readFiles(files) {
       const settled = await Promise.allSettled(files.map(readFile));
@@ -1043,6 +1214,10 @@
       setEnabled(true);
       updateStats();
       applyFilters();
+      if (window.TonAchievements) {
+        window.TonAchievements.scan(state.records, window.tonsave && window.tonsave.oscSend);
+        renderAchievementsView();
+      }
     }
 
     function readFile(file) {
@@ -1254,6 +1429,82 @@
 
     function toggleRainbowMode() {
       applyRainbowMode(!state.rainbowMode);
+    }
+
+    function openAchievementsWindow() {
+      if (window.tonsave && typeof window.tonsave.openAchievements === "function") {
+        window.tonsave.openAchievements();
+      }
+    }
+
+    function readAchievementState() {
+      const catalog = window.TonAchievements && Array.isArray(window.TonAchievements.catalog)
+        ? window.TonAchievements.catalog
+        : [];
+      const unlocked = window.TonAchievements && typeof window.TonAchievements.unlocked === "function"
+        ? new Set(window.TonAchievements.unlocked())
+        : new Set();
+      return { catalog, unlocked };
+    }
+
+    function describeAchievementCriteria(criteria = {}) {
+      const parts = [];
+      if (Array.isArray(criteria.roundTypes) && criteria.roundTypes.length) {
+        parts.push(`RT=${criteria.roundTypes.join("/")}`);
+      }
+      if (criteria.roundTypeNot !== undefined) {
+        parts.push(`RT≠${criteria.roundTypeNot}`);
+      }
+      if (criteria.noteEquals) {
+        parts.push(`Note=${criteria.noteEquals}`);
+      }
+      if (criteria.noteIncludes) {
+        parts.push(`Note includes ${criteria.noteIncludes}`);
+      }
+      if (Array.isArray(criteria.mapIds) && criteria.mapIds.length) {
+        parts.push(`MapID=${criteria.mapIds.join("/")}`);
+      }
+      if (criteria.mapId !== undefined) {
+        parts.push(`MapID=${criteria.mapId}`);
+      }
+      if (criteria.terrorCountMin !== undefined || criteria.terrorCountMax !== undefined) {
+        const min = criteria.terrorCountMin !== undefined ? criteria.terrorCountMin : "-";
+        const max = criteria.terrorCountMax !== undefined ? criteria.terrorCountMax : "-";
+        parts.push(`TD=${min}..${max}`);
+      }
+      return parts.length ? parts.join(" / ") : "条件なし";
+    }
+
+    function renderAchievementsView() {
+      if (!els.achievementsGrid) return;
+      const { catalog, unlocked } = readAchievementState();
+      const unlockedCount = catalog.filter(item => unlocked.has(item.id)).length;
+      const total = catalog.length;
+      const pending = Math.max(total - unlockedCount, 0);
+      const oscCount = catalog.filter(item => item.osc).length;
+
+      els.aUnlocked.textContent = formatNumber(unlockedCount);
+      els.aTotal.textContent = formatNumber(total);
+      els.aPending.textContent = formatNumber(pending);
+      els.aOsc.textContent = formatNumber(oscCount);
+      els.achievementsSubtitle.textContent = isAchievementsView
+        ? "解除済みの実績をここで確認できます"
+        : "実績ウィンドウを開いて確認できます";
+
+      els.achievementsGrid.innerHTML = catalog.length ? catalog.map(item => {
+        const unlockedNow = unlocked.has(item.id);
+        return `
+          <article class="achievement-card ${unlockedNow ? "unlocked" : "locked"}">
+            <div class="achievement-meta">
+              <span class="achievement-tag ${unlockedNow ? "ok" : "no"}">${unlockedNow ? "Unlocked" : "Locked"}</span>
+              <span class="badge">${escapeHtml(item.id)}</span>
+            </div>
+            <h2>${escapeHtml(item.name)}</h2>
+            <p>${escapeHtml(item.description || "")}</p>
+            <p>${escapeHtml(describeAchievementCriteria(item.criteria))}</p>
+          </article>
+        `;
+      }).join("") : `<div class="empty">実績がまだありません</div>`;
     }
 
     function updateStats() {
@@ -1546,6 +1797,7 @@
       updateThemeButton();
       updateStats();
       render();
+      renderAchievementsView();
     }
 
     reset();
