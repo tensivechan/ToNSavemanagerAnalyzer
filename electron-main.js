@@ -362,7 +362,6 @@ async function refreshLogTail() {
       receivedAt: Date.now()
     });
     log.info(`Watching VRChat log: ${activeLogFile}`);
-    return;
   }
 
   if (latest.size < activeLogOffset) {
