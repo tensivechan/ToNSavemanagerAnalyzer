@@ -975,6 +975,24 @@
       padding: 14px 16px;
     }
 
+    .monitor-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .monitor-control input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: var(--panel);
+      color: var(--ink);
+      font: 600 14px/1.4 Consolas, "Cascadia Mono", monospace;
+    }
+
     .monitor-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1304,11 +1322,19 @@
     </div>
     <div class="monitor-path" id="monitorFilePath">未監視</div>
     <div class="monitor-path" id="monitorDirectory">--</div>
+    <div class="monitor-control" aria-label="monitor path control">
+      <input id="monitorPathInput" type="text" spellcheck="false" placeholder="output_log_YYYY-MM-DD_HH-MM-SS.txt のフルパスを入力">
+      <button class="ghost" id="monitorApplyBtn" type="button">反映</button>
+      <button class="ghost" id="monitorAutoBtn" type="button">自動</button>
+    </div>
     <div class="monitor-grid">
       <div class="metric"><b id="monitorStatus">--</b><span>Monitor</span></div>
       <div class="metric"><b id="monitorLastUpdate">--</b><span>Last Update</span></div>
+      <div class="metric"><b id="monitorFileName">--</b><span>File Name</span></div>
       <div class="metric"><b id="monitorCurrentRoundType">--</b><span>RoundType</span></div>
       <div class="metric"><b id="monitorCurrentMap">--</b><span>Map</span></div>
+      <div class="metric"><b id="monitorFileSize">--</b><span>Size</span></div>
+      <div class="metric"><b id="monitorFileUpdatedAt">--</b><span>File Updated</span></div>
     </div>
     <section class="monitor-live" aria-label="monitor current round">
       <div class="live-label">現在のラウンド</div>
@@ -1482,7 +1508,10 @@
       liveCurrentRecord: null,
       monitor: {
         monitoredFilePath: "",
+        monitoredResolvedPath: "",
+        monitoredRequestedPath: "",
         monitoredDirectory: "",
+        monitorMode: "auto",
         monitorStatus: "idle",
         lastMessageAt: 0
       },
@@ -1574,10 +1603,16 @@
         monitorSubtitle: document.getElementById("monitorSubtitle"),
         monitorFilePath: document.getElementById("monitorFilePath"),
         monitorDirectory: document.getElementById("monitorDirectory"),
+        monitorPathInput: document.getElementById("monitorPathInput"),
+        monitorApplyBtn: document.getElementById("monitorApplyBtn"),
+        monitorAutoBtn: document.getElementById("monitorAutoBtn"),
         monitorStatus: document.getElementById("monitorStatus"),
         monitorLastUpdate: document.getElementById("monitorLastUpdate"),
+        monitorFileName: document.getElementById("monitorFileName"),
         monitorCurrentRoundType: document.getElementById("monitorCurrentRoundType"),
         monitorCurrentMap: document.getElementById("monitorCurrentMap"),
+        monitorFileSize: document.getElementById("monitorFileSize"),
+        monitorFileUpdatedAt: document.getElementById("monitorFileUpdatedAt"),
         monitorRoundText: document.getElementById("monitorRoundText"),
         monitorRoundType: document.getElementById("monitorRoundType"),
         monitorMap: document.getElementById("monitorMap"),
@@ -1634,6 +1669,13 @@
       els.achievementsBtn.addEventListener("click", openAchievementsWindow);
       els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
       els.achievementsCloseBtn.addEventListener("click", () => window.close());
+      els.monitorApplyBtn.addEventListener("click", applyManualMonitorPath);
+      els.monitorAutoBtn.addEventListener("click", clearManualMonitorPath);
+      els.monitorPathInput.addEventListener("keydown", event => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyManualMonitorPath();
+      });
       els.monitorRefreshBtn.addEventListener("click", refreshMonitorView);
       els.monitorCloseBtn.addEventListener("click", () => window.close());
       window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
@@ -1657,6 +1699,16 @@
             })
             .catch(() => {});
         }, 2500);
+      }
+      if (window.tonsave && typeof window.tonsave.getLogMonitorInfo === "function") {
+        window.tonsave.getLogMonitorInfo()
+          .then(snapshot => syncMonitorState(snapshot))
+          .catch(() => {});
+        setInterval(() => {
+          window.tonsave.getLogMonitorInfo()
+            .then(snapshot => syncMonitorState(snapshot))
+            .catch(() => {});
+        }, 1000);
       }
     if (window.tonsave && typeof window.tonsave.getUpdateState === "function") {
       window.tonsave.getUpdateState()
@@ -2104,6 +2156,31 @@
       }
     }
 
+    async function applyManualMonitorPath() {
+      if (!window.tonsave || typeof window.tonsave.setLogMonitorPath !== "function") return;
+      const filePath = String(els.monitorPathInput && els.monitorPathInput.value || "").trim();
+      try {
+        const snapshot = await window.tonsave.setLogMonitorPath(filePath);
+        if (snapshot && snapshot.ok === false) {
+          alert(snapshot.error || "監視先を設定できませんでした");
+          return;
+        }
+        syncMonitorState(snapshot || {});
+      } catch (error) {
+        alert(error && error.message ? error.message : "監視先を設定できませんでした");
+      }
+    }
+
+    async function clearManualMonitorPath() {
+      if (!window.tonsave || typeof window.tonsave.setLogMonitorPath !== "function") return;
+      try {
+        const snapshot = await window.tonsave.setLogMonitorPath("");
+        syncMonitorState(snapshot || {});
+      } catch (error) {
+        alert(error && error.message ? error.message : "自動監視へ戻せませんでした");
+      }
+    }
+
     function setAchievementSource(source) {
       state.achievementSource = source === "live" ? "live" : "imported";
       localStorage.setItem("tonsave-achievement-source", state.achievementSource);
@@ -2206,6 +2283,13 @@
           })
           .catch(() => {});
       }
+      if (window.tonsave && typeof window.tonsave.getLogMonitorInfo === "function") {
+        window.tonsave.getLogMonitorInfo()
+          .then(snapshot => {
+            syncMonitorState(snapshot);
+          })
+          .catch(() => {});
+      }
     }
 
     function syncLiveLogState(snapshot = {}) {
@@ -2253,9 +2337,15 @@
 
     function syncMonitorState(snapshot = {}) {
       state.monitor.monitoredFilePath = value(snapshot.monitoredFilePath || snapshot.filePath || liveLogState.raw.filePath || "");
+      state.monitor.monitoredResolvedPath = value(snapshot.monitoredResolvedPath || state.monitor.monitoredFilePath || "");
+      state.monitor.monitoredRequestedPath = value(snapshot.monitoredRequestedPath || "");
       state.monitor.monitoredDirectory = value(snapshot.monitoredDirectory || "");
+      state.monitor.monitorMode = value(snapshot.monitorMode || (state.monitor.monitoredRequestedPath ? "manual" : "auto"));
       state.monitor.monitorStatus = value(snapshot.monitorStatus || (state.monitor.monitoredFilePath ? "monitoring" : "idle"));
       state.monitor.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
+      state.monitor.monitorFileName = value(snapshot.monitorFileName || "");
+      state.monitor.monitorFileSize = numberOrNull(snapshot.monitorFileSize) || 0;
+      state.monitor.monitorFileUpdatedAt = numberOrNull(snapshot.monitorFileUpdatedAt) || 0;
       if (isMonitorView) {
         renderMonitorView();
       }
@@ -2350,20 +2440,34 @@
           record.result !== null
         )
       );
+      if (els.monitorPathInput && document.activeElement !== els.monitorPathInput && els.monitorPathInput.value !== state.monitor.monitoredRequestedPath) {
+        els.monitorPathInput.value = state.monitor.monitoredRequestedPath;
+      }
       els.monitorSubtitle.textContent = state.monitor.monitoredFilePath
-        ? `監視中: ${state.monitor.monitoredFilePath}`
+        ? `監視中: ${state.monitor.monitoredResolvedPath || state.monitor.monitoredFilePath}`
         : "監視先を取得中";
-      els.monitorFilePath.textContent = state.monitor.monitoredFilePath || "未監視";
+      els.monitorFilePath.textContent = state.monitor.monitoredRequestedPath
+        ? `手動: ${state.monitor.monitoredRequestedPath}`
+        : `自動: ${state.monitor.monitoredResolvedPath || state.monitor.monitoredFilePath || "未監視"}`;
       els.monitorDirectory.textContent = state.monitor.monitoredDirectory || "--";
-      els.monitorStatus.textContent = state.monitor.monitorStatus === "monitoring" ? "監視中" : "待機";
+      els.monitorStatus.textContent = state.monitor.monitorStatus === "monitoring-manual"
+        ? "手動監視"
+        : state.monitor.monitorStatus === "monitoring-auto"
+          ? "自動監視"
+          : "待機";
       els.monitorLastUpdate.textContent = state.monitor.lastMessageAt
         ? new Date(state.monitor.lastMessageAt).toLocaleString("ja-JP", { hour12: false })
         : "--";
+      els.monitorFileName.textContent = state.monitor.monitorFileName || (state.monitor.monitoredResolvedPath ? state.monitor.monitoredResolvedPath.split(/[\\/]/).pop() : "--");
       els.monitorCurrentRoundType.textContent = record && record.roundType !== null
         ? formatRoundType(record.roundType)
         : "--";
       els.monitorCurrentMap.textContent = record && record.mapId !== null
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
+        : "--";
+      els.monitorFileSize.textContent = state.monitor.monitorFileSize ? formatNumber(state.monitor.monitorFileSize) : "--";
+      els.monitorFileUpdatedAt.textContent = state.monitor.monitorFileUpdatedAt
+        ? new Date(state.monitor.monitorFileUpdatedAt).toLocaleString("ja-JP", { hour12: false })
         : "--";
       els.monitorRoundText.textContent = hasRound
         ? [

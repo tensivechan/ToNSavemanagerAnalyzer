@@ -4,8 +4,14 @@ contextBridge.exposeInMainWorld("tonsave", {
   oscSend(message) {
     return ipcRenderer.invoke("osc:send", message);
   },
-  getLogState() {
-    return ipcRenderer.invoke("log:get-state");
+    getLogState() {
+      return ipcRenderer.invoke("log:get-state");
+    },
+  getLogMonitorInfo() {
+    return ipcRenderer.invoke("log:get-monitor-info");
+  },
+  setLogMonitorPath(filePath) {
+    return ipcRenderer.invoke("log:set-monitor-path", filePath);
   },
   getUpdateState() {
     return ipcRenderer.invoke("update:get-state");

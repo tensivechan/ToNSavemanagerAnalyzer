@@ -17,6 +17,7 @@ let debugLogPollTimer = null;
 let activeLogFile = "";
 let activeLogOffset = 0;
 let activeLogRemainder = "";
+let manualMonitorLogFile = "";
 let liveRoundHistory = [];
 let liveRoundSequence = 0;
 let liveRoundFinalizedKey = "";
@@ -167,6 +168,34 @@ async function findLatestLogFile() {
     log.warn("Failed to inspect VRChat log directory", error);
     return null;
   }
+}
+
+async function validateMonitorLogFile(filePath) {
+  const normalized = String(filePath || "").trim();
+  if (!normalized) return "";
+  try {
+    const stat = await fs.promises.stat(normalized);
+    return stat.isFile() ? normalized : "";
+  } catch {
+    return "";
+  }
+}
+
+async function resolveMonitoredLogFile() {
+  if (manualMonitorLogFile) {
+    const manual = await validateMonitorLogFile(manualMonitorLogFile);
+    if (manual) {
+      return { path: manual, mode: "manual" };
+    }
+    manualMonitorLogFile = "";
+  }
+
+  const latest = await findLatestLogFile();
+  if (latest && latest.path) {
+    return { path: latest.path, mode: "auto" };
+  }
+
+  return null;
 }
 
 function parseLogJsonCandidate(text) {
@@ -346,11 +375,11 @@ function processLogChunk(chunk, state = {}) {
 }
 
 async function refreshDebugLogTail() {
-  const latest = await findLatestLogFile();
-  if (!latest) return;
+  const resolved = await resolveMonitoredLogFile();
+  if (!resolved || !resolved.path) return;
 
-  if (latest.path !== activeLogFile) {
-    activeLogFile = latest.path;
+  if (resolved.path !== activeLogFile) {
+    activeLogFile = resolved.path;
     activeLogOffset = 0;
     activeLogRemainder = "";
     applyLiveOscRecord({ reset: true });
@@ -361,23 +390,26 @@ async function refreshDebugLogTail() {
       state: snapshotOscState(),
       receivedAt: Date.now()
     });
-    log.info(`Watching VRChat log: ${activeLogFile}`);
+    log.info(`Watching VRChat log (${resolved.mode}): ${activeLogFile}`);
   }
 
-  if (latest.size < activeLogOffset) {
-    activeLogOffset = latest.size;
+  const stat = await fs.promises.stat(activeLogFile).catch(() => null);
+  if (!stat || !stat.isFile()) return;
+
+  if (stat.size < activeLogOffset) {
+    activeLogOffset = stat.size;
     activeLogRemainder = "";
     return;
   }
 
-  if (latest.size === activeLogOffset) return;
+  if (stat.size === activeLogOffset) return;
 
-  const length = latest.size - activeLogOffset;
+  const length = stat.size - activeLogOffset;
   const handle = await fs.promises.open(activeLogFile, "r");
   try {
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, activeLogOffset);
-    activeLogOffset = latest.size;
+    activeLogOffset = stat.size;
     processLogChunk(buffer.toString("utf8"), { emit: true });
   } finally {
     await handle.close();
@@ -403,6 +435,7 @@ function stopDebugLogWatcher() {
   activeLogFile = "";
   activeLogOffset = 0;
   activeLogRemainder = "";
+  manualMonitorLogFile = "";
   liveRoundHistory = [];
   liveRoundSequence = 0;
   liveRoundFinalizedKey = "";
@@ -534,8 +567,11 @@ function snapshotOscState() {
   const liveRecord = buildLiveRoundRecord();
   return {
     monitoredFilePath: activeLogFile,
+    monitoredResolvedPath: activeLogFile,
+    monitoredRequestedPath: manualMonitorLogFile,
     monitoredDirectory: getVrcLogDirectory(),
-    monitorStatus: activeLogFile ? "monitoring" : "idle",
+    monitorMode: manualMonitorLogFile ? "manual" : "auto",
+    monitorStatus: activeLogFile ? (manualMonitorLogFile ? "monitoring-manual" : "monitoring-auto") : "idle",
     note: oscLiveState.note,
     roundType: oscLiveState.roundType,
     roundTypeLabel: oscLiveState.roundTypeLabel,
@@ -1082,6 +1118,51 @@ ipcMain.handle("osc:send", async (_event, message) => {
 
 ipcMain.handle("log:get-state", () => snapshotOscState());
 ipcMain.handle("osc:get-state", () => snapshotOscState());
+ipcMain.handle("log:get-monitor-info", async () => {
+  const resolved = await resolveMonitoredLogFile();
+  const monitoredPath = resolved && resolved.path ? resolved.path : activeLogFile;
+  let fileSize = 0;
+  let fileUpdatedAt = 0;
+  if (monitoredPath) {
+    const stat = await fs.promises.stat(monitoredPath).catch(() => null);
+    if (stat && stat.isFile()) {
+      fileSize = stat.size;
+      fileUpdatedAt = stat.mtimeMs;
+    }
+  }
+  return {
+    monitoredFilePath: activeLogFile,
+    monitoredResolvedPath: monitoredPath,
+    monitoredRequestedPath: manualMonitorLogFile,
+    monitoredDirectory: getVrcLogDirectory(),
+    monitorMode: manualMonitorLogFile ? "manual" : "auto",
+    monitorStatus: activeLogFile ? (manualMonitorLogFile ? "monitoring-manual" : "monitoring-auto") : "idle",
+    monitorFileName: monitoredPath ? path.basename(monitoredPath) : "",
+    monitorFileSize: fileSize,
+    monitorFileUpdatedAt: fileUpdatedAt,
+    lastMessageAt: oscLiveState.lastMessageAt
+  };
+});
+ipcMain.handle("log:set-monitor-path", async (_event, filePath) => {
+  const normalized = String(filePath || "").trim();
+  if (!normalized) {
+    manualMonitorLogFile = "";
+    await refreshDebugLogTail().catch(error => log.warn("Failed to refresh auto monitor path", error));
+    return { ok: true, ...snapshotOscState() };
+  }
+
+  const resolved = await validateMonitorLogFile(normalized);
+  if (!resolved) {
+    return {
+      ok: false,
+      error: "指定したファイルが見つかりません"
+    };
+  }
+
+  manualMonitorLogFile = resolved;
+  await refreshDebugLogTail().catch(error => log.warn("Failed to refresh manual monitor path", error));
+  return { ok: true, ...snapshotOscState() };
+});
 ipcMain.handle("update:get-state", () => snapshotUpdateState());
 ipcMain.handle("update:check", async () => {
   if (!autoUpdater) {
