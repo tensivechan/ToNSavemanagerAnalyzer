@@ -16,11 +16,14 @@ contextBridge.exposeInMainWorld("tonsave", {
   installUpdate() {
     return ipcRenderer.invoke("update:install");
   },
-  openAchievements() {
-    return ipcRenderer.invoke("ui:open-achievements");
-  },
-  onLogMessage(callback) {
-    if (typeof callback !== "function") return () => {};
+    openAchievements() {
+      return ipcRenderer.invoke("ui:open-achievements");
+    },
+    openLogMonitor() {
+      return ipcRenderer.invoke("ui:open-log-monitor");
+    },
+    onLogMessage(callback) {
+      if (typeof callback !== "function") return () => {};
     const handler = (_event, message) => callback(message);
     ipcRenderer.on("log:message", handler);
     return () => {

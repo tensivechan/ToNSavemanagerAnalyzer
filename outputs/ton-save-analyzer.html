@@ -2,13 +2,16 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script>
-    document.documentElement.dataset.view =
-      new URLSearchParams(location.search).get("view") === "achievements"
-        ? "achievements"
-        : "app";
-  </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      const viewName = new URLSearchParams(location.search).get("view");
+      document.documentElement.dataset.view =
+        viewName === "achievements"
+          ? "achievements"
+          : viewName === "monitor"
+            ? "monitor"
+          : "app";
+    </script>
   <title>ToNSaveManager Analyzer</title>
   <style>
     :root {
@@ -198,11 +201,27 @@
       padding: 22px clamp(16px, 3vw, 32px) 28px;
     }
 
+    .monitor-shell {
+      min-height: 100vh;
+      display: none;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 16px;
+      padding: 22px clamp(16px, 3vw, 32px) 28px;
+    }
+
     html[data-view="achievements"] .app {
       display: none;
     }
 
     html[data-view="achievements"] .achievements-shell {
+      display: grid;
+    }
+
+    html[data-view="monitor"] .app {
+      display: none;
+    }
+
+    html[data-view="monitor"] .monitor-shell {
       display: grid;
     }
 
@@ -856,6 +875,12 @@
       box-shadow: 0 10px 26px rgba(0, 0, 0, .28);
     }
 
+    body[data-theme="dark"] .monitor-path,
+    body[data-theme="dark"] .monitor-live {
+      background: #151b25;
+      border-color: #2b3442;
+    }
+
     body[data-theme="dark"] .section-head {
       border-bottom-color: #2b3442;
     }
@@ -928,6 +953,53 @@
       margin: 0;
       font-size: clamp(26px, 3vw, 36px);
       line-height: 1.05;
+    }
+
+    .monitor-title {
+      display: grid;
+      gap: 6px;
+    }
+
+    .monitor-title h1 {
+      margin: 0;
+      font-size: clamp(28px, 3vw, 40px);
+      line-height: 1.05;
+    }
+
+    .monitor-path {
+      font: 600 18px/1.4 Consolas, "Cascadia Mono", monospace;
+      word-break: break-all;
+      background: rgba(127, 141, 170, .10);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .monitor-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .monitor-grid .metric {
+      min-height: 92px;
+    }
+
+    .monitor-live {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .monitor-live .live-value {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .achievements-subtitle {
@@ -1051,6 +1123,11 @@
         grid-template-columns: repeat(3, 1fr);
       }
 
+      .monitor-grid,
+      .monitor-live {
+        grid-template-columns: 1fr 1fr;
+      }
+
       main {
         grid-template-columns: 1fr;
       }
@@ -1067,6 +1144,11 @@
 
       .stats {
         grid-template-columns: repeat(2, 1fr);
+      }
+
+      .monitor-grid,
+      .monitor-live {
+        grid-template-columns: 1fr;
       }
 
       th, td {
@@ -1097,10 +1179,11 @@
           </div>
         </div>
         <button class="ghost" id="clearBtn" disabled title="クリア">⌫</button>
-        <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
-        <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
-        <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
-      </div>
+          <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
+          <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
+          <button class="ghost" id="monitorBtn" type="button" title="監視先">👁</button>
+          <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
+        </div>
 
       <div class="toolbar">
         <label class="drop" id="dropZone">
@@ -1212,6 +1295,33 @@
     </section>
 
     <div class="achievement-grid" id="achievementsGrid"></div>
+  </div>
+
+  <div class="monitor-shell" id="monitorShell">
+    <div class="monitor-title">
+      <h1>監視先</h1>
+      <div class="achievements-subtitle" id="monitorSubtitle">監視中の output_log を表示中</div>
+    </div>
+    <div class="monitor-path" id="monitorFilePath">未監視</div>
+    <div class="monitor-path" id="monitorDirectory">--</div>
+    <div class="monitor-grid">
+      <div class="metric"><b id="monitorStatus">--</b><span>Monitor</span></div>
+      <div class="metric"><b id="monitorLastUpdate">--</b><span>Last Update</span></div>
+      <div class="metric"><b id="monitorCurrentRoundType">--</b><span>RoundType</span></div>
+      <div class="metric"><b id="monitorCurrentMap">--</b><span>Map</span></div>
+    </div>
+    <section class="monitor-live" aria-label="monitor current round">
+      <div class="live-label">現在のラウンド</div>
+      <div class="live-value" id="monitorRoundText">待機中</div>
+      <div class="live-pill" id="monitorRoundType">--</div>
+      <div class="live-pill" id="monitorMap">Map --</div>
+      <div class="live-pill" id="monitorTerrorIds">TD --</div>
+      <div class="live-pill" id="monitorResult">Result --</div>
+    </section>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="ghost" id="monitorRefreshBtn" type="button" title="更新">↻</button>
+      <button class="ghost" id="monitorCloseBtn" type="button" title="閉じる">✕</button>
+    </div>
   </div>
 
   <script src="../scripts/achievement-engine.js"></script>
@@ -1370,6 +1480,12 @@
       records: [],
       liveRecords: [],
       liveCurrentRecord: null,
+      monitor: {
+        monitoredFilePath: "",
+        monitoredDirectory: "",
+        monitorStatus: "idle",
+        lastMessageAt: 0
+      },
       achievementSource: localStorage.getItem("tonsave-achievement-source") === "live" ? "live" : "imported",
       update: {
         status: "idle",
@@ -1404,6 +1520,7 @@
     };
 
     const isAchievementsView = document.documentElement.dataset.view === "achievements";
+    const isMonitorView = document.documentElement.dataset.view === "monitor";
 
     const els = {
       fileInput: document.getElementById("fileInput"),
@@ -1419,8 +1536,9 @@
       exportJsonBtn: document.getElementById("exportJsonBtn"),
       clearBtn: document.getElementById("clearBtn"),
       themeBtn: document.getElementById("themeBtn"),
-      rainbowBtn: document.getElementById("rainbowBtn"),
-      achievementsBtn: document.getElementById("achievementsBtn"),
+        rainbowBtn: document.getElementById("rainbowBtn"),
+        monitorBtn: document.getElementById("monitorBtn"),
+        achievementsBtn: document.getElementById("achievementsBtn"),
       recordsBody: document.getElementById("recordsBody"),
       emptyState: document.getElementById("emptyState"),
       visibleCount: document.getElementById("visibleCount"),
@@ -1445,14 +1563,29 @@
       updateStatusText: document.getElementById("updateStatusText"),
       updateCurrentVersion: document.getElementById("updateCurrentVersion"),
       updateLatestVersion: document.getElementById("updateLatestVersion"),
-      checkUpdateBtn: document.getElementById("checkUpdateBtn"),
-      installUpdateBtn: document.getElementById("installUpdateBtn"),
-      liveRoundText: document.getElementById("liveRoundText"),
-      liveRoundType: document.getElementById("liveRoundType"),
-      liveMap: document.getElementById("liveMap"),
-      liveTerrorIds: document.getElementById("liveTerrorIds"),
-      liveResult: document.getElementById("liveResult")
-    };
+        checkUpdateBtn: document.getElementById("checkUpdateBtn"),
+        installUpdateBtn: document.getElementById("installUpdateBtn"),
+        liveRoundText: document.getElementById("liveRoundText"),
+        liveRoundType: document.getElementById("liveRoundType"),
+        liveMap: document.getElementById("liveMap"),
+        liveTerrorIds: document.getElementById("liveTerrorIds"),
+        liveResult: document.getElementById("liveResult"),
+        monitorShell: document.getElementById("monitorShell"),
+        monitorSubtitle: document.getElementById("monitorSubtitle"),
+        monitorFilePath: document.getElementById("monitorFilePath"),
+        monitorDirectory: document.getElementById("monitorDirectory"),
+        monitorStatus: document.getElementById("monitorStatus"),
+        monitorLastUpdate: document.getElementById("monitorLastUpdate"),
+        monitorCurrentRoundType: document.getElementById("monitorCurrentRoundType"),
+        monitorCurrentMap: document.getElementById("monitorCurrentMap"),
+        monitorRoundText: document.getElementById("monitorRoundText"),
+        monitorRoundType: document.getElementById("monitorRoundType"),
+        monitorMap: document.getElementById("monitorMap"),
+        monitorTerrorIds: document.getElementById("monitorTerrorIds"),
+        monitorResult: document.getElementById("monitorResult"),
+        monitorRefreshBtn: document.getElementById("monitorRefreshBtn"),
+        monitorCloseBtn: document.getElementById("monitorCloseBtn")
+      };
 
     els.pickBtn.addEventListener("click", () => els.fileInput.click());
     els.fileInput.addEventListener("change", () => {
@@ -1492,26 +1625,36 @@
     els.clearBtn.addEventListener("click", reset);
       els.themeBtn.addEventListener("click", toggleTheme);
       els.rainbowBtn.addEventListener("click", toggleRainbowMode);
+      els.monitorBtn.addEventListener("click", openLogMonitorWindow);
       els.achievementSourceImportedBtn.addEventListener("click", () => setAchievementSource("imported"));
       els.achievementSourceLiveBtn.addEventListener("click", () => setAchievementSource("live"));
       els.achievementResetBtn.addEventListener("click", resetAchievements);
       els.checkUpdateBtn.addEventListener("click", checkForUpdates);
       els.installUpdateBtn.addEventListener("click", installUpdate);
       els.achievementsBtn.addEventListener("click", openAchievementsWindow);
-    els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
-    els.achievementsCloseBtn.addEventListener("click", () => window.close());
-    window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
-    window.addEventListener("storage", renderAchievementsView);
-    if (!isAchievementsView && window.tonsave && typeof window.tonsave.onLogMessage === "function") {
-      window.tonsave.onLogMessage(handleLogMessage);
-    }
+      els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
+      els.achievementsCloseBtn.addEventListener("click", () => window.close());
+      els.monitorRefreshBtn.addEventListener("click", refreshMonitorView);
+      els.monitorCloseBtn.addEventListener("click", () => window.close());
+      window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
+      window.addEventListener("storage", renderAchievementsView);
+      window.addEventListener("tonsave-log-updated", handleLogMessage);
+      if (window.tonsave && typeof window.tonsave.onLogMessage === "function") {
+        window.tonsave.onLogMessage(handleLogMessage);
+      }
       if (window.tonsave && typeof window.tonsave.getLogState === "function") {
         window.tonsave.getLogState()
-          .then(syncLiveLogState)
+          .then(snapshot => {
+            syncLiveLogState(snapshot);
+            syncMonitorState(snapshot);
+          })
           .catch(() => {});
         setInterval(() => {
           window.tonsave.getLogState()
-            .then(syncLiveLogState)
+            .then(snapshot => {
+              syncLiveLogState(snapshot);
+              syncMonitorState(snapshot);
+            })
             .catch(() => {});
         }, 2500);
       }
@@ -1520,18 +1663,21 @@
         .then(syncUpdateState)
         .catch(() => {});
     }
-    if (window.tonsave && typeof window.tonsave.onUpdateMessage === "function") {
-      window.tonsave.onUpdateMessage(handleUpdateMessage);
-    }
+      if (window.tonsave && typeof window.tonsave.onUpdateMessage === "function") {
+        window.tonsave.onUpdateMessage(handleUpdateMessage);
+      }
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
     updateRainbowButton();
-    updateThemeButton();
-    renderUpdatePanel();
-    if (isAchievementsView) {
-      renderAchievementsView();
-    }
+      updateThemeButton();
+      renderUpdatePanel();
+      if (isMonitorView) {
+        refreshMonitorView();
+      }
+      if (isAchievementsView) {
+        renderAchievementsView();
+      }
 
     async function readFiles(files) {
       const settled = await Promise.allSettled(files.map((file, fileIndex) => readFile(file, fileIndex)));
@@ -1952,6 +2098,12 @@
       }
     }
 
+    function openLogMonitorWindow() {
+      if (window.tonsave && typeof window.tonsave.openLogMonitor === "function") {
+        window.tonsave.openLogMonitor();
+      }
+    }
+
     function setAchievementSource(source) {
       state.achievementSource = source === "live" ? "live" : "imported";
       localStorage.setItem("tonsave-achievement-source", state.achievementSource);
@@ -2042,6 +2194,18 @@
     function handleLogMessage(message) {
       if (!message || !message.state) return;
       syncLiveLogState(message.state);
+      syncMonitorState(message.state);
+    }
+
+    function refreshMonitorView() {
+      if (window.tonsave && typeof window.tonsave.getLogState === "function") {
+        window.tonsave.getLogState()
+          .then(snapshot => {
+            syncLiveLogState(snapshot);
+            syncMonitorState(snapshot);
+          })
+          .catch(() => {});
+      }
     }
 
     function syncLiveLogState(snapshot = {}) {
@@ -2079,8 +2243,21 @@
       if (window.TonAchievements && window.TonAchievements.live) {
         window.TonAchievements.live.scan(state.liveRecords, window.tonsave && window.tonsave.oscSend);
       }
+      if (isMonitorView) {
+        renderMonitorView();
+      }
       if (isAchievementsView || state.achievementSource === "live") {
         renderAchievementsView();
+      }
+    }
+
+    function syncMonitorState(snapshot = {}) {
+      state.monitor.monitoredFilePath = value(snapshot.monitoredFilePath || snapshot.filePath || liveLogState.raw.filePath || "");
+      state.monitor.monitoredDirectory = value(snapshot.monitoredDirectory || "");
+      state.monitor.monitorStatus = value(snapshot.monitorStatus || (state.monitor.monitoredFilePath ? "monitoring" : "idle"));
+      state.monitor.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
+      if (isMonitorView) {
+        renderMonitorView();
       }
     }
 
@@ -2156,6 +2333,56 @@
         ? `TD ${formatTerrorIds(record.terrorData)}`
         : "TD --";
       els.liveResult.textContent = record && record.result !== null
+        ? (record.result === 1 ? "Result Win" : "Result Lose")
+        : "Result --";
+    }
+
+    function renderMonitorView() {
+      if (!els.monitorFilePath) return;
+      const record = state.liveCurrentRecord || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
+      const hasRound = Boolean(
+        record && (
+          record.note ||
+          record.mapId !== null ||
+          record.roundType !== null ||
+          record.playerCount !== null ||
+          (Array.isArray(record.terrorData) && record.terrorData.length) ||
+          record.result !== null
+        )
+      );
+      els.monitorSubtitle.textContent = state.monitor.monitoredFilePath
+        ? `監視中: ${state.monitor.monitoredFilePath}`
+        : "監視先を取得中";
+      els.monitorFilePath.textContent = state.monitor.monitoredFilePath || "未監視";
+      els.monitorDirectory.textContent = state.monitor.monitoredDirectory || "--";
+      els.monitorStatus.textContent = state.monitor.monitorStatus === "monitoring" ? "監視中" : "待機";
+      els.monitorLastUpdate.textContent = state.monitor.lastMessageAt
+        ? new Date(state.monitor.lastMessageAt).toLocaleString("ja-JP", { hour12: false })
+        : "--";
+      els.monitorCurrentRoundType.textContent = record && record.roundType !== null
+        ? formatRoundType(record.roundType)
+        : "--";
+      els.monitorCurrentMap.textContent = record && record.mapId !== null
+        ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
+        : "--";
+      els.monitorRoundText.textContent = hasRound
+        ? [
+          record.note || "(blank)",
+          record.mapName ? `@ ${record.mapName}` : "",
+          record.playerCount !== null ? `${record.playerCount}人` : "",
+          record.terrorCount !== null ? `${record.terrorCount}体` : ""
+        ].filter(Boolean).join(" / ")
+        : "待機中";
+      els.monitorRoundType.textContent = record && record.roundType !== null
+        ? formatRoundType(record.roundType)
+        : "--";
+      els.monitorMap.textContent = record && record.mapId !== null
+        ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
+        : "Map --";
+      els.monitorTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
+        ? `TD ${formatTerrorIds(record.terrorData)}`
+        : "TD --";
+      els.monitorResult.textContent = record && record.result !== null
         ? (record.result === 1 ? "Result Win" : "Result Lose")
         : "Result --";
     }
@@ -2547,6 +2774,7 @@
       renderUpdatePanel();
       updateStats();
       renderLivePanel();
+      renderMonitorView();
       render();
       renderAchievementsView();
     }

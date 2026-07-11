@@ -11,6 +11,7 @@ log.transports.file.level = "info";
 let autoUpdater = null;
 let mainWindow = null;
 let achievementsWindow = null;
+let logMonitorWindow = null;
 let oscSocket = null;
 let debugLogPollTimer = null;
 let activeLogFile = "";
@@ -532,6 +533,9 @@ function parseOscPacket(buffer, offset = 0) {
 function snapshotOscState() {
   const liveRecord = buildLiveRoundRecord();
   return {
+    monitoredFilePath: activeLogFile,
+    monitoredDirectory: getVrcLogDirectory(),
+    monitorStatus: activeLogFile ? "monitoring" : "idle",
     note: oscLiveState.note,
     roundType: oscLiveState.roundType,
     roundTypeLabel: oscLiveState.roundTypeLabel,
@@ -889,6 +893,39 @@ function createAchievementsWindow() {
   return achievementsWindow;
 }
 
+function createLogMonitorWindow() {
+  if (logMonitorWindow && !logMonitorWindow.isDestroyed()) {
+    logMonitorWindow.focus();
+    return logMonitorWindow;
+  }
+
+  logMonitorWindow = new BrowserWindow({
+    width: 1120,
+    height: 780,
+    minWidth: 920,
+    minHeight: 640,
+    backgroundColor: "#f6f4ef",
+    title: "監視先",
+    icon: iconPath,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, "preload.js")
+    }
+  });
+
+  logMonitorWindow.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"), {
+    query: { view: "monitor" }
+  });
+
+  logMonitorWindow.on("closed", () => {
+    logMonitorWindow = null;
+  });
+
+  return logMonitorWindow;
+}
+
 function padOscBuffer(buffer) {
   const remainder = buffer.length % 4;
   if (remainder === 0) return buffer;
@@ -1076,6 +1113,11 @@ ipcMain.handle("update:install", async () => {
 
 ipcMain.handle("ui:open-achievements", () => {
   createAchievementsWindow();
+  return true;
+});
+
+ipcMain.handle("ui:open-log-monitor", () => {
+  createLogMonitorWindow();
   return true;
 });
 
