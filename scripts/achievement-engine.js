@@ -1,15 +1,17 @@
 (function () {
-  const STORAGE_KEY = "tonsave-achievements-unlocked";
+  const DEFAULT_IMPORTED_KEY = "tonsave-achievements-imported-unlocked";
+  const DEFAULT_LIVE_KEY = "tonsave-achievements-live-unlocked";
 
   const CATALOG = [
     {
       id: "classic_500",
       name: "クラシックを500回やる",
-      description: "クラシックを500回プレイすると解除",
+      description: "クラシックを500回クリアしたら解除",
       criteria: {
         roundTypes: [1],
         countAtLeast: 500
       },
+      source: "imported",
       osc: {
         address: "/avatar/parameters/AchievementClassic500",
         value: true
@@ -18,11 +20,12 @@
     {
       id: "alternate_100",
       name: "オルタネイトを100回やる",
-      description: "オルタネイトを100回プレイすると解除",
+      description: "オルタネイトを100回クリアしたら解除",
       criteria: {
         roundTypes: [51],
         countAtLeast: 100
       },
+      source: "imported",
       osc: {
         address: "/avatar/parameters/AchievementAlternate100",
         value: true
@@ -31,11 +34,12 @@
     {
       id: "classic_hungry_home_invader",
       name: "Hungry Home Invader",
-      description: "クラシックで Hungry Home Invader を引く",
+      description: "クラシックで Hungry Home Invader を達成",
       criteria: {
         roundTypes: [1],
         noteEquals: "hungry home invader"
       },
+      source: "imported",
       osc: {
         address: "/avatar/parameters/AchievementClassicHungryHomeInvader",
         value: true
@@ -44,11 +48,12 @@
     {
       id: "classic_atrached",
       name: "Atrached",
-      description: "クラシックで Atrached を引く",
+      description: "クラシックで Atrached を達成",
       criteria: {
         roundTypes: [1],
         noteEquals: "atrached"
       },
+      source: "imported",
       osc: {
         address: "/avatar/parameters/AchievementClassicAtrached",
         value: true
@@ -57,23 +62,36 @@
     {
       id: "special_wild_yet_bloodthirsty_creature",
       name: "Wild Yet Bloodthirsty Creature",
-      description: "特殊ラウンドで Wild Yet Bloodthirsty Creature を引く",
+      description: "特殊ラウンドで Wild Yet Bloodthirsty Creature を達成",
       criteria: {
         noteEquals: "wild yet bloodthirsty creature",
         roundTypeNot: 1
       },
+      source: "live",
       osc: {
         address: "/avatar/parameters/AchievementSpecialWildYetBloodthirstyCreature",
+        value: true
+      }
+    },
+    {
+      id: "midnight_fusion_pilot_win",
+      name: "MIDNIGHTでFusionPilotに勝利",
+      description: "MIDNIGHTでFusion Pilotを含むラウンドに勝利したら解除",
+      criteria: {
+        roundTypes: [50],
+        terrorIdsAny: [29],
+        result: 1
+      },
+      osc: {
+        address: "/avatar/parameters/AchievementMidnightFusionPilotWin",
         value: true
       }
     }
   ];
 
-  const unlocked = new Set(loadUnlockedIds());
-
-  function loadUnlockedIds() {
+  function loadUnlockedIds(storageKey) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
     } catch {
@@ -81,9 +99,9 @@
     }
   }
 
-  function saveUnlockedIds() {
+  function saveUnlockedIds(storageKey, unlocked) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...unlocked]));
+      localStorage.setItem(storageKey, JSON.stringify([...unlocked]));
     } catch {
       /* ignore */
     }
@@ -154,6 +172,10 @@
       return false;
     }
 
+    if (criteria.result !== undefined && Number(record.result) !== Number(criteria.result)) {
+      return false;
+    }
+
     if (Array.isArray(criteria.terrorIdsAny) && criteria.terrorIdsAny.length && !criteria.terrorIdsAny.some(id => terrorIds.includes(Number(id)))) {
       return false;
     }
@@ -175,32 +197,98 @@
     return records.reduce((count, record) => count + (matchesCriteria(record, criteria) ? 1 : 0), 0);
   }
 
-  function getAchievementProgress(achievement, records) {
-    const target = getAchievementTarget(achievement);
-    const count = countMatchingRecords(records, achievement.criteria);
-    return {
-      id: achievement.id,
-      count,
-      target,
-      unlocked: unlocked.has(achievement.id),
-      complete: count >= target
-    };
-  }
+  function createTracker(options = {}) {
+    const source = options.source || "imported";
+    const storageKey = options.storageKey || DEFAULT_IMPORTED_KEY;
+    const unlocked = new Set(loadUnlockedIds(storageKey));
 
-  function showToast(achievement) {
-    const root = document.getElementById("achievementToastRoot") || createToastRoot();
-    const item = document.createElement("div");
-    item.className = "achievement-toast";
-    item.innerHTML = `
-      <div class="achievement-toast-title">Achievement Unlocked</div>
-      <div class="achievement-toast-name">${escapeHtml(achievement.name)}</div>
-      <div class="achievement-toast-desc">${escapeHtml(achievement.description || "")}</div>
-    `;
-    root.appendChild(item);
-    window.setTimeout(() => {
-      item.classList.add("hide");
-      window.setTimeout(() => item.remove(), 300);
-    }, 3500);
+    function getAchievementProgress(achievement, records) {
+      const target = getAchievementTarget(achievement);
+      const count = countMatchingRecords(records, achievement.criteria);
+      return {
+        id: achievement.id,
+        count,
+        target,
+        unlocked: unlocked.has(achievement.id),
+        complete: count >= target
+      };
+    }
+
+    function showToast(achievement) {
+      const root = document.getElementById("achievementToastRoot") || createToastRoot();
+      const item = document.createElement("div");
+      item.className = "achievement-toast";
+      item.innerHTML = `
+        <div class="achievement-toast-title">Achievement Unlocked</div>
+        <div class="achievement-toast-name">${escapeHtml(achievement.name)}</div>
+        <div class="achievement-toast-desc">${escapeHtml(achievement.description || "")}</div>
+      `;
+      root.appendChild(item);
+      window.setTimeout(() => {
+        item.classList.add("hide");
+        window.setTimeout(() => item.remove(), 300);
+      }, 3500);
+    }
+
+    async function emitOsc(achievement, sendOsc) {
+      if (!achievement.osc || typeof sendOsc !== "function") return;
+      try {
+        await sendOsc({
+          host: "127.0.0.1",
+          port: 9000,
+          address: achievement.osc.address,
+          args: Array.isArray(achievement.osc.args)
+            ? achievement.osc.args
+            : [achievement.osc.value !== undefined ? achievement.osc.value : true]
+        });
+      } catch (error) {
+        console.error("OSC send failed", error);
+      }
+    }
+
+    async function unlock(achievement, sendOsc) {
+      if (unlocked.has(achievement.id)) return false;
+      unlocked.add(achievement.id);
+      saveUnlockedIds(storageKey, unlocked);
+      showToast(achievement);
+      await emitOsc(achievement, sendOsc);
+      window.dispatchEvent(new CustomEvent("tonsave-achievement-unlocked", {
+        detail: achievement
+      }));
+      return true;
+    }
+
+    async function scan(records, sendOsc) {
+      if (!Array.isArray(records) || !records.length) return [];
+      const unlockedNow = [];
+      for (const achievement of CATALOG) {
+        if (achievement.source && achievement.source !== source) {
+          continue;
+        }
+        if (unlocked.has(achievement.id)) continue;
+        const progress = getAchievementProgress(achievement, records);
+        if (progress.complete) {
+          const isNew = await unlock(achievement, sendOsc);
+          if (isNew) unlockedNow.push(achievement);
+        }
+      }
+      return unlockedNow;
+    }
+
+    return {
+      source,
+      scan,
+      progress(records) {
+        return CATALOG
+          .filter(achievement => !achievement.source || achievement.source === source)
+          .map(achievement => getAchievementProgress(achievement, records));
+      },
+      unlocked: () => [...unlocked],
+      reset() {
+        unlocked.clear();
+        saveUnlockedIds(storageKey, unlocked);
+      }
+    };
   }
 
   function createToastRoot() {
@@ -266,58 +354,32 @@
       .replaceAll("'", "&#039;");
   }
 
-  async function emitOsc(achievement, sendOsc) {
-    if (!achievement.osc || typeof sendOsc !== "function") return;
-    try {
-      await sendOsc({
-        host: "127.0.0.1",
-        port: 9000,
-        address: achievement.osc.address,
-        args: Array.isArray(achievement.osc.args)
-          ? achievement.osc.args
-          : [achievement.osc.value !== undefined ? achievement.osc.value : true]
-      });
-    } catch (error) {
-      console.error("OSC send failed", error);
-    }
-  }
-
-  async function unlock(achievement, sendOsc) {
-    if (unlocked.has(achievement.id)) return false;
-    unlocked.add(achievement.id);
-    saveUnlockedIds();
-    showToast(achievement);
-    await emitOsc(achievement, sendOsc);
-    window.dispatchEvent(new CustomEvent("tonsave-achievement-unlocked", {
-      detail: achievement
-    }));
-    return true;
-  }
-
-  async function scan(records, sendOsc) {
-    if (!Array.isArray(records) || !records.length) return [];
-    const unlockedNow = [];
-    for (const achievement of CATALOG) {
-      if (unlocked.has(achievement.id)) continue;
-      const progress = getAchievementProgress(achievement, records);
-      if (progress.complete) {
-        const isNew = await unlock(achievement, sendOsc);
-        if (isNew) unlockedNow.push(achievement);
-      }
-    }
-    return unlockedNow;
-  }
+  const importedTracker = createTracker({ source: "imported", storageKey: DEFAULT_IMPORTED_KEY });
+  const liveTracker = createTracker({ source: "live", storageKey: DEFAULT_LIVE_KEY });
 
   window.TonAchievements = {
     catalog: CATALOG,
-    scan,
-    progress(records) {
-      return CATALOG.map(achievement => getAchievementProgress(achievement, records));
+    imported: importedTracker,
+    live: liveTracker,
+    trackers: {
+      imported: importedTracker,
+      live: liveTracker
     },
-    unlocked: () => [...unlocked],
-    reset() {
-      unlocked.clear();
-      saveUnlockedIds();
+    scan(records, sendOsc, source = "imported") {
+      const tracker = source === "live" ? liveTracker : importedTracker;
+      return tracker.scan(records, sendOsc);
+    },
+    progress(records, source = "imported") {
+      const tracker = source === "live" ? liveTracker : importedTracker;
+      return tracker.progress(records);
+    },
+    unlocked(source = "imported") {
+      const tracker = source === "live" ? liveTracker : importedTracker;
+      return tracker.unlocked();
+    },
+    reset(source = "imported") {
+      const tracker = source === "live" ? liveTracker : importedTracker;
+      tracker.reset();
     }
   };
 })();

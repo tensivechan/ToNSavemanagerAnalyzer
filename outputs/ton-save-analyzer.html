@@ -907,6 +907,18 @@
       padding-bottom: 2px;
     }
 
+    .achievement-source-switch {
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .achievement-source-switch button.selected {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
     .achievements-title {
       display: grid;
       gap: 6px;
@@ -1181,10 +1193,15 @@
         <h1>Achievements</h1>
         <div class="achievements-subtitle" id="achievementsSubtitle">実績を読み込み中</div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="ghost" id="achievementsRefreshBtn" type="button" title="更新">↻</button>
-        <button class="ghost" id="achievementsCloseBtn" type="button" title="閉じる">✕</button>
-      </div>
+        <div class="achievement-source-switch">
+          <button class="ghost selected" id="achievementSourceImportedBtn" type="button">セーブデータ</button>
+          <button class="ghost" id="achievementSourceLiveBtn" type="button">リアルタイム</button>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="ghost" id="achievementResetBtn" type="button" title="デバッグ用に実績をリセット">リセット</button>
+          <button class="ghost" id="achievementsRefreshBtn" type="button" title="更新">↻</button>
+          <button class="ghost" id="achievementsCloseBtn" type="button" title="閉じる">✕</button>
+        </div>
     </div>
 
     <section class="achievement-summary" aria-label="achievement summary">
@@ -1353,6 +1370,7 @@
       records: [],
       liveRecords: [],
       liveCurrentRecord: null,
+      achievementSource: localStorage.getItem("tonsave-achievement-source") === "live" ? "live" : "imported",
       update: {
         status: "idle",
         currentVersion: "",
@@ -1408,11 +1426,14 @@
       visibleCount: document.getElementById("visibleCount"),
       detailBody: document.getElementById("detailBody"),
       detailBadge: document.getElementById("detailBadge"),
-      achievementsShell: document.getElementById("achievementsShell"),
-      achievementsSubtitle: document.getElementById("achievementsSubtitle"),
-      achievementsRefreshBtn: document.getElementById("achievementsRefreshBtn"),
-      achievementsCloseBtn: document.getElementById("achievementsCloseBtn"),
-      achievementsGrid: document.getElementById("achievementsGrid"),
+        achievementsShell: document.getElementById("achievementsShell"),
+        achievementsSubtitle: document.getElementById("achievementsSubtitle"),
+        achievementSourceImportedBtn: document.getElementById("achievementSourceImportedBtn"),
+        achievementSourceLiveBtn: document.getElementById("achievementSourceLiveBtn"),
+        achievementResetBtn: document.getElementById("achievementResetBtn"),
+        achievementsRefreshBtn: document.getElementById("achievementsRefreshBtn"),
+        achievementsCloseBtn: document.getElementById("achievementsCloseBtn"),
+        achievementsGrid: document.getElementById("achievementsGrid"),
       aUnlocked: document.getElementById("aUnlocked"),
       aTotal: document.getElementById("aTotal"),
       aPending: document.getElementById("aPending"),
@@ -1458,18 +1479,25 @@
       if (files.length) readFiles(files);
     });
 
-    els.searchInput.addEventListener("input", applyFilters);
-    els.roundTypeFilter.addEventListener("change", applyFilters);
-    els.sortFilter.addEventListener("change", applyFilters);
-    els.hideBlankToggle.addEventListener("change", applyFilters);
+      els.searchInput.addEventListener("keydown", event => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyFilters();
+      });
+      els.roundTypeFilter.addEventListener("change", applyFilters);
+      els.sortFilter.addEventListener("change", applyFilters);
+      els.hideBlankToggle.addEventListener("change", applyFilters);
     els.exportCsvBtn.addEventListener("click", exportCsv);
     els.exportJsonBtn.addEventListener("click", exportJson);
     els.clearBtn.addEventListener("click", reset);
-    els.themeBtn.addEventListener("click", toggleTheme);
-    els.rainbowBtn.addEventListener("click", toggleRainbowMode);
-    els.checkUpdateBtn.addEventListener("click", checkForUpdates);
-    els.installUpdateBtn.addEventListener("click", installUpdate);
-    els.achievementsBtn.addEventListener("click", openAchievementsWindow);
+      els.themeBtn.addEventListener("click", toggleTheme);
+      els.rainbowBtn.addEventListener("click", toggleRainbowMode);
+      els.achievementSourceImportedBtn.addEventListener("click", () => setAchievementSource("imported"));
+      els.achievementSourceLiveBtn.addEventListener("click", () => setAchievementSource("live"));
+      els.achievementResetBtn.addEventListener("click", resetAchievements);
+      els.checkUpdateBtn.addEventListener("click", checkForUpdates);
+      els.installUpdateBtn.addEventListener("click", installUpdate);
+      els.achievementsBtn.addEventListener("click", openAchievementsWindow);
     els.achievementsRefreshBtn.addEventListener("click", renderAchievementsView);
     els.achievementsCloseBtn.addEventListener("click", () => window.close());
     window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
@@ -1528,9 +1556,11 @@
       setEnabled(true);
       updateStats();
       applyFilters();
-      if (window.TonAchievements) {
-        window.TonAchievements.scan(state.records, window.tonsave && window.tonsave.oscSend);
-        renderAchievementsView();
+      if (window.TonAchievements && window.TonAchievements.imported) {
+        window.TonAchievements.imported.scan(state.records, window.tonsave && window.tonsave.oscSend);
+        if (state.achievementSource === "imported" || isAchievementsView) {
+          renderAchievementsView();
+        }
       }
     }
 
@@ -1917,6 +1947,30 @@
       }
     }
 
+    function setAchievementSource(source) {
+      state.achievementSource = source === "live" ? "live" : "imported";
+      localStorage.setItem("tonsave-achievement-source", state.achievementSource);
+      renderAchievementSourceButtons();
+      renderAchievementsView();
+    }
+
+    function resetAchievements() {
+      const source = state.achievementSource === "live" ? "live" : "imported";
+      const label = source === "live" ? "リアルタイム実績" : "セーブデータ実績";
+      if (!window.confirm(`${label}をリセットしますか？`)) return;
+      if (window.TonAchievements && typeof window.TonAchievements.reset === "function") {
+        window.TonAchievements.reset(source);
+      }
+      renderAchievementsView();
+    }
+
+    function renderAchievementSourceButtons() {
+      const importedActive = state.achievementSource === "imported";
+      const liveActive = state.achievementSource === "live";
+      els.achievementSourceImportedBtn.classList.toggle("selected", importedActive);
+      els.achievementSourceLiveBtn.classList.toggle("selected", liveActive);
+    }
+
     function handleUpdateMessage(message) {
       if (!message || !message.state) return;
       syncUpdateState(message.state);
@@ -2012,8 +2066,10 @@
         : [];
       renderLivePanel();
 
-      if (!isAchievementsView && window.TonAchievements) {
-        window.TonAchievements.scan(getAchievementRecords(), window.tonsave && window.tonsave.oscSend);
+      if (window.TonAchievements && window.TonAchievements.live) {
+        window.TonAchievements.live.scan(state.liveRecords, window.tonsave && window.tonsave.oscSend);
+      }
+      if (isAchievementsView || state.achievementSource === "live") {
         renderAchievementsView();
       }
     }
@@ -2055,8 +2111,9 @@
     }
 
     function getAchievementRecords() {
-      const liveRecords = Array.isArray(state.liveRecords) ? state.liveRecords : [];
-      return [...state.records, ...liveRecords];
+      return state.achievementSource === "live"
+        ? (Array.isArray(state.liveRecords) ? state.liveRecords : [])
+        : state.records;
     }
 
     function renderLivePanel() {
@@ -2097,8 +2154,11 @@
       const catalog = window.TonAchievements && Array.isArray(window.TonAchievements.catalog)
         ? window.TonAchievements.catalog
         : [];
-      const unlocked = window.TonAchievements && typeof window.TonAchievements.unlocked === "function"
-        ? new Set(window.TonAchievements.unlocked())
+      const tracker = state.achievementSource === "live"
+        ? window.TonAchievements && window.TonAchievements.live
+        : window.TonAchievements && window.TonAchievements.imported;
+      const unlocked = tracker && typeof tracker.unlocked === "function"
+        ? new Set(tracker.unlocked())
         : new Set();
       return { catalog, unlocked };
     }
@@ -2128,6 +2188,10 @@
         const max = criteria.terrorCountMax !== undefined ? criteria.terrorCountMax : "-";
         parts.push(`TD=${min}..${max}`);
       }
+      if (criteria.result !== undefined) {
+        const resultLabel = Number(criteria.result) === 1 ? "Win" : Number(criteria.result) === 0 ? "Lose" : criteria.result;
+        parts.push(`Result=${resultLabel}`);
+      }
       if (criteria.countAtLeast !== undefined) {
         parts.push(`回数>=${criteria.countAtLeast}`);
       }
@@ -2136,9 +2200,13 @@
 
     function renderAchievementsView() {
       if (!els.achievementsGrid) return;
+      renderAchievementSourceButtons();
       const { catalog, unlocked } = readAchievementState();
-      const progressList = window.TonAchievements && typeof window.TonAchievements.progress === "function"
-        ? window.TonAchievements.progress(getAchievementRecords())
+      const tracker = state.achievementSource === "live"
+        ? window.TonAchievements && window.TonAchievements.live
+        : window.TonAchievements && window.TonAchievements.imported;
+      const progressList = tracker && typeof tracker.progress === "function"
+        ? tracker.progress(getAchievementRecords())
         : [];
       const progressMap = new Map(progressList.map(item => [item.id, item]));
       const unlockedCount = catalog.filter(item => unlocked.has(item.id)).length;
@@ -2151,8 +2219,8 @@
       els.aPending.textContent = formatNumber(pending);
       els.aLog.textContent = formatNumber(oscCount);
       els.achievementsSubtitle.textContent = isAchievementsView
-        ? "解除済みの実績をここで確認できます"
-        : "実績ウィンドウを開いて確認できます";
+        ? (state.achievementSource === "live" ? "リアルタイムの実績" : "セーブデータの実績")
+        : (state.achievementSource === "live" ? "リアルタイム実績を表示中" : "セーブデータ実績を表示中");
 
       els.achievementsGrid.innerHTML = catalog.length ? catalog.map(item => {
         const unlockedNow = unlocked.has(item.id);

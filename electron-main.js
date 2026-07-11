@@ -381,7 +381,7 @@ function startLogWatcher() {
   refreshLogTail().catch(error => log.warn("Initial VRChat log scan failed", error));
   logPollTimer = setInterval(() => {
     refreshLogTail().catch(error => log.warn("VRChat log tail refresh failed", error));
-  }, 1500);
+  }, 2500);
   if (typeof logPollTimer.unref === "function") {
     logPollTimer.unref();
   }
