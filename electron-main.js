@@ -12,8 +12,7 @@ let autoUpdater = null;
 let mainWindow = null;
 let achievementsWindow = null;
 let oscSocket = null;
-let logWatcher = null;
-let logPollTimer = null;
+let debugLogPollTimer = null;
 let activeLogFile = "";
 let activeLogOffset = 0;
 let activeLogRemainder = "";
@@ -345,7 +344,7 @@ function processLogChunk(chunk, state = {}) {
   return changed;
 }
 
-async function refreshLogTail() {
+async function refreshDebugLogTail() {
   const latest = await findLatestLogFile();
   if (!latest) return;
 
@@ -384,21 +383,21 @@ async function refreshLogTail() {
   }
 }
 
-function startLogWatcher() {
-  if (logPollTimer) return;
-  refreshLogTail().catch(error => log.warn("Initial VRChat log scan failed", error));
-  logPollTimer = setInterval(() => {
-    refreshLogTail().catch(error => log.warn("VRChat log tail refresh failed", error));
-  }, 2500);
-  if (typeof logPollTimer.unref === "function") {
-    logPollTimer.unref();
+function startDebugLogWatcher() {
+  if (debugLogPollTimer) return;
+  refreshDebugLogTail().catch(error => log.warn("Initial VRChat debug log scan failed", error));
+  debugLogPollTimer = setInterval(() => {
+    refreshDebugLogTail().catch(error => log.warn("VRChat debug log tail refresh failed", error));
+  }, 1000);
+  if (typeof debugLogPollTimer.unref === "function") {
+    debugLogPollTimer.unref();
   }
 }
 
-function stopLogWatcher() {
-  if (logPollTimer) {
-    clearInterval(logPollTimer);
-    logPollTimer = null;
+function stopDebugLogWatcher() {
+  if (debugLogPollTimer) {
+    clearInterval(debugLogPollTimer);
+    debugLogPollTimer = null;
   }
   activeLogFile = "";
   activeLogOffset = 0;
@@ -1082,7 +1081,7 @@ ipcMain.handle("ui:open-achievements", () => {
 
 app.whenReady().then(() => {
   createWindow();
-  startLogWatcher();
+  startDebugLogWatcher();
   if (app.isPackaged) setupAutoUpdater();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1090,7 +1089,7 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
-  stopLogWatcher();
+  stopDebugLogWatcher();
   stopOscListener();
 });
 
