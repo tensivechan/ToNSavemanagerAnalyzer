@@ -209,7 +209,7 @@ function parseLogTerrorData(value) {
 }
 
 function parseLogLine(line) {
-  const text = String(line || "").trim();
+  const text = normalizeLogMessage(line);
   if (!text) return null;
   const update = {};
 
@@ -297,6 +297,14 @@ function parseLogLine(line) {
   return Object.keys(update).length ? update : null;
 }
 
+function normalizeLogMessage(line) {
+  const text = String(line || "").trim();
+  if (!text) return "";
+  const prefixed = text.match(/^\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}:\d{2}\s+[A-Za-z]+\s+-\s*(.+)$/);
+  if (prefixed) return prefixed[1].trim();
+  return text;
+}
+
 function processLogChunk(chunk, state = {}) {
   const emit = state.emit !== false;
   activeLogRemainder += String(chunk || "");
@@ -306,12 +314,13 @@ function processLogChunk(chunk, state = {}) {
 
   for (const line of lines) {
     let lineChanged = false;
-    if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(line)) {
+    const normalizedLine = normalizeLogMessage(line);
+    if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
       if (finalizeLiveRound()) {
         lineChanged = true;
       }
     }
-    const update = parseLogLine(line);
+    const update = parseLogLine(normalizedLine);
     if (!update) continue;
     const didChange = applyLiveOscRecord(update);
     if (update.finalize) {

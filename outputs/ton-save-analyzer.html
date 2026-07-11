@@ -1505,11 +1505,16 @@
     if (!isAchievementsView && window.tonsave && typeof window.tonsave.onLogMessage === "function") {
       window.tonsave.onLogMessage(handleLogMessage);
     }
-    if (window.tonsave && typeof window.tonsave.getLogState === "function") {
-      window.tonsave.getLogState()
-        .then(syncLiveLogState)
-        .catch(() => {});
-    }
+      if (window.tonsave && typeof window.tonsave.getLogState === "function") {
+        window.tonsave.getLogState()
+          .then(syncLiveLogState)
+          .catch(() => {});
+        setInterval(() => {
+          window.tonsave.getLogState()
+            .then(syncLiveLogState)
+            .catch(() => {});
+        }, 2500);
+      }
     if (window.tonsave && typeof window.tonsave.getUpdateState === "function") {
       window.tonsave.getUpdateState()
         .then(syncUpdateState)
@@ -2060,7 +2065,12 @@
       liveLogState.lastAddress = value(snapshot.lastAddress);
       liveLogState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
       liveLogState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
-      state.liveCurrentRecord = normalizeLiveRecord(snapshot.liveRecord || null);
+      state.liveCurrentRecord = normalizeLiveRecord(
+        snapshot.liveRecord ||
+        (Array.isArray(snapshot.liveRecords) && snapshot.liveRecords.length
+          ? snapshot.liveRecords[snapshot.liveRecords.length - 1]
+          : null)
+      );
       state.liveRecords = Array.isArray(snapshot.liveRecords)
         ? snapshot.liveRecords.map(normalizeLiveRecord).filter(Boolean)
         : [];
@@ -2117,7 +2127,7 @@
     }
 
     function renderLivePanel() {
-      const record = state.liveCurrentRecord;
+      const record = state.liveCurrentRecord || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
       const hasRound = Boolean(
         record && (
           record.note ||
