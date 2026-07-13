@@ -95,6 +95,14 @@ function broadcastLogMessage(message) {
   }
 }
 
+function broadcastLogRawLine(message) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("log:raw-line", message);
+    }
+  }
+}
+
 function broadcastUpdateMessage(message) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -344,6 +352,14 @@ function processLogChunk(chunk, state = {}) {
   for (const line of lines) {
     let lineChanged = false;
     const normalizedLine = normalizeLogMessage(line);
+    if (emit) {
+      broadcastLogRawLine({
+        filePath: activeLogFile,
+        line,
+        normalizedLine,
+        receivedAt: Date.now()
+      });
+    }
     if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
       if (finalizeLiveRound()) {
         lineChanged = true;

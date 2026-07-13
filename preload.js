@@ -28,12 +28,20 @@ contextBridge.exposeInMainWorld("tonsave", {
     openLogMonitor() {
       return ipcRenderer.invoke("ui:open-log-monitor");
     },
-    onLogMessage(callback) {
-      if (typeof callback !== "function") return () => {};
+  onLogMessage(callback) {
+    if (typeof callback !== "function") return () => {};
     const handler = (_event, message) => callback(message);
     ipcRenderer.on("log:message", handler);
     return () => {
       ipcRenderer.removeListener("log:message", handler);
+    };
+  },
+  onLogRawLine(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on("log:raw-line", handler);
+    return () => {
+      ipcRenderer.removeListener("log:raw-line", handler);
     };
   },
   onUpdateMessage(callback) {

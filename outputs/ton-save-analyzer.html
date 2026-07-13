@@ -1014,6 +1014,53 @@
       background: var(--panel);
     }
 
+    .monitor-feed {
+      display: grid;
+      gap: 10px;
+      min-height: 220px;
+      max-height: 34vh;
+      overflow: auto;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .monitor-feed-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    .monitor-feed-list {
+      display: grid;
+      gap: 6px;
+      font: 13px/1.45 Consolas, "Cascadia Mono", monospace;
+    }
+
+    .monitor-feed-line {
+      padding: 8px 10px;
+      border: 1px solid rgba(127, 141, 170, .18);
+      border-radius: 6px;
+      background: rgba(127, 141, 170, .08);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .monitor-feed-line.parsed {
+      background: rgba(19, 111, 99, .08);
+      border-color: rgba(19, 111, 99, .18);
+    }
+
+    .monitor-feed-line .meta {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
     .monitor-live .live-value {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1344,6 +1391,13 @@
       <div class="live-pill" id="monitorTerrorIds">TD --</div>
       <div class="live-pill" id="monitorResult">Result --</div>
     </section>
+    <section class="monitor-feed" aria-label="monitored log lines">
+      <div class="monitor-feed-head">
+        <div>監視中の中身</div>
+        <div class="achievements-subtitle" id="monitorFeedHint">まだログを受信していません</div>
+      </div>
+      <div class="monitor-feed-list" id="monitorFeed"></div>
+    </section>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
       <button class="ghost" id="monitorRefreshBtn" type="button" title="更新">↻</button>
       <button class="ghost" id="monitorCloseBtn" type="button" title="閉じる">✕</button>
@@ -1513,7 +1567,8 @@
         monitoredDirectory: "",
         monitorMode: "auto",
         monitorStatus: "idle",
-        lastMessageAt: 0
+        lastMessageAt: 0,
+        rawLines: []
       },
       achievementSource: localStorage.getItem("tonsave-achievement-source") === "live" ? "live" : "imported",
       update: {
@@ -1618,6 +1673,8 @@
         monitorMap: document.getElementById("monitorMap"),
         monitorTerrorIds: document.getElementById("monitorTerrorIds"),
         monitorResult: document.getElementById("monitorResult"),
+        monitorFeedHint: document.getElementById("monitorFeedHint"),
+        monitorFeed: document.getElementById("monitorFeed"),
         monitorRefreshBtn: document.getElementById("monitorRefreshBtn"),
         monitorCloseBtn: document.getElementById("monitorCloseBtn")
       };
@@ -1683,6 +1740,9 @@
       window.addEventListener("tonsave-log-updated", handleLogMessage);
       if (window.tonsave && typeof window.tonsave.onLogMessage === "function") {
         window.tonsave.onLogMessage(handleLogMessage);
+      }
+      if (window.tonsave && typeof window.tonsave.onLogRawLine === "function") {
+        window.tonsave.onLogRawLine(handleRawLogLine);
       }
       if (window.tonsave && typeof window.tonsave.getLogState === "function") {
         window.tonsave.getLogState()
@@ -2274,6 +2334,31 @@
       syncMonitorState(message.state);
     }
 
+    function handleRawLogLine(message) {
+      if (!message) return;
+      if (message.update && message.update.reset) {
+        state.monitor.rawLines = [];
+        if (isMonitorView) renderMonitorFeed();
+        return;
+      }
+      const line = value(message.normalizedLine || message.line || "");
+      if (!line) return;
+      const timestamp = message.receivedAt
+        ? new Date(message.receivedAt).toLocaleTimeString("ja-JP", { hour12: false })
+        : "";
+      state.monitor.rawLines.push({
+        timestamp,
+        line,
+        parsed: Boolean(message.update && Object.keys(message.update || {}).length && !message.update.reset)
+      });
+      if (state.monitor.rawLines.length > 240) {
+        state.monitor.rawLines.splice(0, state.monitor.rawLines.length - 240);
+      }
+      if (isMonitorView) {
+        renderMonitorFeed();
+      }
+    }
+
     function refreshMonitorView() {
       if (window.tonsave && typeof window.tonsave.getLogState === "function") {
         window.tonsave.getLogState()
@@ -2489,6 +2574,32 @@
       els.monitorResult.textContent = record && record.result !== null
         ? (record.result === 1 ? "Result Win" : "Result Lose")
         : "Result --";
+      renderMonitorFeed();
+    }
+
+    function renderMonitorFeed() {
+      if (!els.monitorFeed) return;
+      if (!state.monitor.rawLines.length) {
+        els.monitorFeedHint.textContent = "まだログを受信していません";
+        els.monitorFeed.innerHTML = "";
+        return;
+      }
+      els.monitorFeedHint.textContent = `${state.monitor.rawLines.length} 行表示中`;
+      els.monitorFeed.innerHTML = "";
+      const fragment = document.createDocumentFragment();
+      for (const entry of state.monitor.rawLines) {
+        const line = document.createElement("div");
+        line.className = `monitor-feed-line${entry.parsed ? " parsed" : ""}`;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = `${entry.timestamp || "--"}${entry.parsed ? " · parsed" : ""}`;
+        const body = document.createElement("span");
+        body.textContent = entry.line;
+        line.append(meta, body);
+        fragment.appendChild(line);
+      }
+      els.monitorFeed.appendChild(fragment);
+      els.monitorFeed.scrollTop = els.monitorFeed.scrollHeight;
     }
 
     function readAchievementState() {
