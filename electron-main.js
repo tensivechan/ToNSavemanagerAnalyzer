@@ -105,6 +105,14 @@ function broadcastLogMessage(message) {
   }
 }
 
+function broadcastLogRawLine(message) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("log:raw-line", message);
+    }
+  }
+}
+
 function broadcastUpdateMessage(message) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -361,6 +369,15 @@ function processLogChunk(chunk, state = {}) {
   for (const line of lines) {
     let lineChanged = false;
     const normalizedLine = normalizeLogMessage(line);
+    if (emit) {
+      broadcastLogRawLine({
+        filePath: activeLogFile,
+        line,
+        normalizedLine,
+        state: snapshotOscState(),
+        receivedAt: Date.now()
+      });
+    }
     if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
       if (finalizeLiveRound()) {
         lineChanged = true;
@@ -546,6 +563,18 @@ function normalizePlayerName(name) {
 function parseInstanceRosterLine(text) {
   const line = String(text || "").trim();
   if (!line) return null;
+
+  const killOwner = line.match(/(?:Current owner is|Owner is|Current player is|Player is)\s+(.+?)(?:\s+and\b|$)/i);
+  if (killOwner) {
+    const name = normalizePlayerName(killOwner[1]);
+    if (name) return { add: name, raw: line };
+  }
+
+  const killName = line.match(/^\[(?:DEATH|KILL|KILLED|KILLER)\]\s*\[(.+?)\]/i);
+  if (killName) {
+    const name = normalizePlayerName(killName[1]);
+    if (name) return { add: name, raw: line };
+  }
 
   const joined = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error)\]\s*)?(?:OnPlayerJoined|Player Joined|Joined(?: the instance)?|Player Entered(?: the instance)?)\s*[:=]?\s*(.+)$/i);
   if (joined) {

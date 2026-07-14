@@ -39,6 +39,14 @@ contextBridge.exposeInMainWorld("tonsave", {
       ipcRenderer.removeListener("log:message", handler);
     };
   },
+  onLogRawLine(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, message) => callback(message);
+    ipcRenderer.on("log:raw-line", handler);
+    return () => {
+      ipcRenderer.removeListener("log:raw-line", handler);
+    };
+  },
   onUpdateMessage(callback) {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, message) => callback(message);
