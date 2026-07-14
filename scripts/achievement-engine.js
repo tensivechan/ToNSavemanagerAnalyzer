@@ -67,9 +67,25 @@
         noteEquals: "wild yet bloodthirsty creature",
         roundTypeNot: 1
       },
-      source: "live",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementSpecialWildYetBloodthirstyCreature",
+        value: true
+      }
+    },
+    {
+      id: "celestial_seraphim",
+      name: "Celestial Seraphim",
+      description: "てんしぶさんがいるインスタンスでHeavenのUnboundを生存クリアする",
+      criteria: {
+        mapId: 49,
+        roundTypes: [10],
+        result: 1,
+        instanceRosterAll: ["てんしぶさん", "Angels"]
+      },
+      source: "live",
+      osc: {
+        address: "/avatar/parameters/AchievementCelestialSeraphim",
         value: true
       }
     },
@@ -127,6 +143,10 @@
     const playerCount = Number(record.playerCount);
     const terrorIds = getTerrorIds(record);
     const terrorCount = Number(record.terrorCount);
+    const content = normalize(record.content);
+    const instanceRoster = Array.isArray(record.instanceRoster)
+      ? record.instanceRoster.map(normalize).filter(Boolean)
+      : [];
 
     if (Array.isArray(criteria.roundTypes) && criteria.roundTypes.length && !criteria.roundTypes.includes(roundType)) {
       return false;
@@ -145,6 +165,14 @@
     }
 
     if (criteria.noteIncludes && !note.includes(normalize(criteria.noteIncludes))) {
+      return false;
+    }
+
+    if (criteria.contentIncludes && !content.includes(normalize(criteria.contentIncludes))) {
+      return false;
+    }
+
+    if (criteria.contentExcludes && content.includes(normalize(criteria.contentExcludes))) {
       return false;
     }
 
@@ -181,6 +209,18 @@
     }
 
     if (Array.isArray(criteria.terrorIdsAll) && criteria.terrorIdsAll.length && !criteria.terrorIdsAll.every(id => terrorIds.includes(Number(id)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceRosterAny) && criteria.instanceRosterAny.length && !criteria.instanceRosterAny.some(name => instanceRoster.includes(normalize(name)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceRosterAll) && criteria.instanceRosterAll.length && !criteria.instanceRosterAll.every(name => instanceRoster.includes(normalize(name)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceRosterExclude) && criteria.instanceRosterExclude.length && criteria.instanceRosterExclude.some(name => instanceRoster.includes(normalize(name)))) {
       return false;
     }
 
@@ -262,7 +302,7 @@
       if (!Array.isArray(records) || !records.length) return [];
       const unlockedNow = [];
       for (const achievement of CATALOG) {
-        if (achievement.source && achievement.source !== source) {
+        if (achievement.source && achievement.source !== source && achievement.source !== "both") {
           continue;
         }
         if (unlocked.has(achievement.id)) continue;
@@ -280,7 +320,7 @@
       scan,
       progress(records) {
         return CATALOG
-          .filter(achievement => !achievement.source || achievement.source === source)
+          .filter(achievement => !achievement.source || achievement.source === source || achievement.source === "both")
           .map(achievement => getAchievementProgress(achievement, records));
       },
       unlocked: () => [...unlocked],

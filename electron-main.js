@@ -21,6 +21,7 @@ let manualMonitorLogFile = "";
 let liveRoundHistory = [];
 let liveRoundSequence = 0;
 let liveRoundFinalizedKey = "";
+let monitorRawLines = [];
 const updateState = {
   status: "idle",
   currentVersion: "",
@@ -369,23 +370,32 @@ function processLogChunk(chunk, state = {}) {
   for (const line of lines) {
     let lineChanged = false;
     const normalizedLine = normalizeLogMessage(line);
-    if (emit) {
-      broadcastLogRawLine({
-        filePath: activeLogFile,
-        line,
-        normalizedLine,
-        state: snapshotOscState(),
-        receivedAt: Date.now()
-      });
-    }
+    const receivedAt = Date.now();
     if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
       if (finalizeLiveRound()) {
         lineChanged = true;
       }
     }
     const update = parseLogLine(normalizedLine);
+    const didChange = update ? applyLiveOscRecord(update) : false;
+    const rawEntry = {
+      filePath: activeLogFile,
+      line,
+      normalizedLine,
+      parsed: Boolean(update),
+      receivedAt
+    };
+    monitorRawLines.push(rawEntry);
+    if (monitorRawLines.length > 260) {
+      monitorRawLines.splice(0, monitorRawLines.length - 260);
+    }
+    if (emit) {
+      broadcastLogRawLine({
+        ...rawEntry,
+        state: snapshotOscState()
+      });
+    }
     if (!update) continue;
-    const didChange = applyLiveOscRecord(update);
     if (update.finalize) {
       if (finalizeLiveRound()) {
         lineChanged = true;
@@ -473,6 +483,7 @@ function stopDebugLogWatcher() {
   liveRoundHistory = [];
   liveRoundSequence = 0;
   liveRoundFinalizedKey = "";
+  monitorRawLines = [];
 }
 
 function coerceNumber(value) {
@@ -694,7 +705,8 @@ function snapshotOscState() {
     lastMessageAt: oscLiveState.lastMessageAt,
     raw: { ...oscLiveState.raw },
     liveRecord,
-    liveRecords: liveRoundHistory.map(record => cloneLiveRoundRecord(record))
+    liveRecords: liveRoundHistory.map(record => cloneLiveRoundRecord(record)),
+    monitorRawLines: monitorRawLines.map(entry => ({ ...entry }))
   };
 }
 
@@ -804,6 +816,7 @@ function applyLiveOscRecord(partial = {}) {
     liveRoundHistory = [];
     liveRoundSequence = 0;
     liveRoundFinalizedKey = "";
+    monitorRawLines = [];
     changed = true;
   }
 
@@ -1283,7 +1296,8 @@ ipcMain.handle("log:get-monitor-info", async () => {
     monitorFileName: monitoredPath ? path.basename(monitoredPath) : "",
     monitorFileSize: fileSize,
     monitorFileUpdatedAt: fileUpdatedAt,
-    lastMessageAt: oscLiveState.lastMessageAt
+    lastMessageAt: oscLiveState.lastMessageAt,
+    monitorRawLines: monitorRawLines.map(entry => ({ ...entry }))
   };
 });
 ipcMain.handle("log:set-monitor-path", async (_event, filePath) => {

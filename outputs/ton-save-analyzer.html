@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.16</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.17</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -2573,6 +2573,13 @@
       state.monitor.monitorFileName = value(snapshot.monitorFileName || "");
       state.monitor.monitorFileSize = numberOrNull(snapshot.monitorFileSize) || 0;
       state.monitor.monitorFileUpdatedAt = numberOrNull(snapshot.monitorFileUpdatedAt) || 0;
+      if (Array.isArray(snapshot.monitorRawLines)) {
+        state.monitor.rawLines = snapshot.monitorRawLines.map(entry => ({
+          timestamp: value(entry && entry.receivedAt ? new Date(entry.receivedAt).toLocaleTimeString("ja-JP", { hour12: false }) : ""),
+          line: value(entry && (entry.normalizedLine || entry.line || "")),
+          parsed: Boolean(entry && entry.parsed)
+        }));
+      }
       if (isMonitorView) {
         renderMonitorView();
       }
@@ -2796,6 +2803,9 @@
       if (criteria.noteIncludes) {
         parts.push(`Note includes ${criteria.noteIncludes}`);
       }
+      if (criteria.contentIncludes) {
+        parts.push(`Content includes ${criteria.contentIncludes}`);
+      }
       if (Array.isArray(criteria.mapIds) && criteria.mapIds.length) {
         parts.push(`MapID=${criteria.mapIds.join("/")}`);
       }
@@ -2810,6 +2820,15 @@
       if (criteria.result !== undefined) {
         const resultLabel = Number(criteria.result) === 1 ? "Win" : Number(criteria.result) === 0 ? "Lose" : criteria.result;
         parts.push(`Result=${resultLabel}`);
+      }
+      if (Array.isArray(criteria.instanceRosterAny) && criteria.instanceRosterAny.length) {
+        parts.push(`Roster any=${criteria.instanceRosterAny.join("/")}`);
+      }
+      if (Array.isArray(criteria.instanceRosterAll) && criteria.instanceRosterAll.length) {
+        parts.push(`Roster all=${criteria.instanceRosterAll.join("/")}`);
+      }
+      if (Array.isArray(criteria.instanceRosterExclude) && criteria.instanceRosterExclude.length) {
+        parts.push(`Roster not=${criteria.instanceRosterExclude.join("/")}`);
       }
       if (criteria.countAtLeast !== undefined) {
         parts.push(`回数>=${criteria.countAtLeast}`);
