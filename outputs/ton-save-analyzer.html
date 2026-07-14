@@ -1529,6 +1529,7 @@
       ["sabotage", 4],
       ["サボタージュ", 4],
       ["insanity", 5],
+      ["cracked", 5],
       ["狂気", 5],
       ["bloodbath", 6],
       ["ブラッドバス", 6],
@@ -1545,7 +1546,6 @@
       ["randomizer", 11],
       ["ランダマイザー", 11],
       ["classic.exe", 12],
-      ["cracked", 12],
       ["クラシック.exe", 12],
       ["midnight", 50],
       ["ミッドナイト", 50],
@@ -1567,6 +1567,7 @@
       ["run!", 104],
       ["走れ！", 104],
       ["8 pages", 105],
+      ["8pages", 105],
       ["８ページ", 105],
       ["gigabyte", 106],
       ["ギガバイト", 106],
@@ -2522,9 +2523,7 @@
             record.terrorCount !== null ? `${record.terrorCount}体` : ""
           ].filter(Boolean).join(" / ")
         : "待機中";
-      els.liveRoundType.textContent = record && record.roundType !== null
-        ? formatRoundType(record.roundType)
-        : "--";
+      els.liveRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
       els.liveMap.textContent = record && record.mapId !== null
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
@@ -2568,9 +2567,7 @@
         ? new Date(state.monitor.lastMessageAt).toLocaleString("ja-JP", { hour12: false })
         : "--";
       els.monitorFileName.textContent = state.monitor.monitorFileName || (state.monitor.monitoredResolvedPath ? state.monitor.monitoredResolvedPath.split(/[\\/]/).pop() : "--");
-      els.monitorCurrentRoundType.textContent = record && record.roundType !== null
-        ? formatRoundType(record.roundType)
-        : "--";
+      els.monitorCurrentRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
       els.monitorCurrentMap.textContent = record && record.mapId !== null
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "--";
@@ -2586,9 +2583,7 @@
           record.terrorCount !== null ? `${record.terrorCount}体` : ""
         ].filter(Boolean).join(" / ")
         : "待機中";
-      els.monitorRoundType.textContent = record && record.roundType !== null
-        ? formatRoundType(record.roundType)
-        : "--";
+      els.monitorRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
       els.monitorMap.textContent = record && record.mapId !== null
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
@@ -2810,9 +2805,9 @@
     }
 
     function formatRoundType(rt) {
-      if (rt === null || rt === undefined) return "";
+      if (rt === null || rt === undefined) return "???";
       const name = roundTypes.get(Number(rt));
-      return name ? `${rt}: ${name}` : String(rt);
+      return name ? `${rt}: ${name}` : "???";
     }
 
     function formatMapLabel(mapId) {
