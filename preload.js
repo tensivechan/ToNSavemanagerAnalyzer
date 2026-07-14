@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld("tonsave", {
   oscSend(message) {
     return ipcRenderer.invoke("osc:send", message);
   },
+  getAssetPath(fileName) {
+    return ipcRenderer.invoke("app:get-asset-path", fileName);
+  },
     getLogState() {
       return ipcRenderer.invoke("log:get-state");
     },

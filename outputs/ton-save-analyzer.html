@@ -1580,6 +1580,8 @@
       "wild yet bloodthirsty creature"
     ]);
 
+    const specialVictorySoundFileName = "TranspotationTrioandTheDrifter.mp3";
+
     const state = {
       fileNames: [],
       records: [],
@@ -1609,7 +1611,12 @@
       selectedKey: "",
       theme: getSavedTheme(),
       rainbowUnlocked: localStorage.getItem("tonsave-rainbow-unlocked") === "1",
-      rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1"
+      rainbowMode: localStorage.getItem("tonsave-rainbow-mode") === "1",
+      specialVictorySound: {
+        path: "",
+        audio: null,
+        ready: false
+      }
     };
 
     const liveLogState = {
@@ -1803,6 +1810,7 @@
       if (window.tonsave && typeof window.tonsave.onUpdateMessage === "function") {
         window.tonsave.onUpdateMessage(handleUpdateMessage);
       }
+      initSpecialVictorySound().catch(() => {});
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
@@ -2241,6 +2249,62 @@
       }
     }
 
+    async function initSpecialVictorySound() {
+      if (!window.tonsave || typeof window.tonsave.getAssetPath !== "function") return;
+      const path = await window.tonsave.getAssetPath(specialVictorySoundFileName);
+      if (!path) return;
+      const audio = new Audio(path);
+      audio.preload = "auto";
+      audio.volume = 1;
+      audio.load();
+      state.specialVictorySound.path = path;
+      state.specialVictorySound.audio = audio;
+      state.specialVictorySound.ready = true;
+    }
+
+    function compactMatchText(value) {
+      return String(value || "")
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9]+/g, "");
+    }
+
+    function isTransportationTrioVictory(record) {
+      if (!record || record.result !== 1) return false;
+      const haystack = compactMatchText([
+        record.note,
+        record.itemName,
+        record.content,
+        record.errors,
+        record.roundTypeExtra,
+        record.mapName
+      ].filter(Boolean).join(" "));
+      return haystack.includes("transportationtrioandthedrifter");
+    }
+
+    function playTransportationTrioSound(record) {
+      if (!isTransportationTrioVictory(record)) return;
+      const audio = state.specialVictorySound.audio;
+      if (!audio || !state.specialVictorySound.ready) return;
+      try {
+        audio.currentTime = 0;
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(error => {
+            logConsoleWarn("Special victory sound failed", error);
+          });
+        }
+      } catch (error) {
+        logConsoleWarn("Special victory sound failed", error);
+      }
+    }
+
+    function logConsoleWarn(label, error) {
+      if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn(label, error);
+      }
+    }
+
     async function applyManualMonitorPath() {
       if (!window.tonsave || typeof window.tonsave.setLogMonitorPath !== "function") return;
       const filePath = String(els.monitorPathInput && els.monitorPathInput.value || "").trim();
@@ -2361,6 +2425,10 @@
 
     function handleRawLogLine(message) {
       if (!message) return;
+      if (message.state) {
+        syncLiveLogState(message.state);
+        syncMonitorState(message.state);
+      }
       if (message.update && message.update.reset) {
         state.monitor.rawLines = [];
         if (isMonitorView) renderMonitorFeed();
@@ -2743,10 +2811,7 @@
           isBloodbathRow(record) ? "bloodbath-row" : "",
           roundTypeRowClass(record)
         ].filter(Boolean).join(" ");
-        tr.addEventListener("click", () => {
-          state.selectedKey = record.recordKey;
-          render();
-        });
+        tr.addEventListener("click", () => handleRecordClick(record));
         tr.innerHTML = [
           td(record.sourceIndex + 1),
           td(record.note || "(blank)", "note"),
@@ -2760,6 +2825,12 @@
         els.recordsBody.appendChild(tr);
       }
       renderDetail();
+    }
+
+    function handleRecordClick(record) {
+      state.selectedKey = record.recordKey;
+      render();
+      playTransportationTrioSound(record);
     }
 
     function renderDetail() {

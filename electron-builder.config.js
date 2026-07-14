@@ -10,6 +10,9 @@ module.exports = {
   productName: "ToNSaveManager Analyzer",
   icon: "assets/app-icon.ico",
   asar: true,
+  asarUnpack: [
+    "assets/*.mp3"
+  ],
   files: [
     "**/*",
     "!dist{,/**}",

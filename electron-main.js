@@ -57,6 +57,14 @@ try {
 const iconPath = app.isPackaged
   ? path.join(process.resourcesPath, "app-icon.ico")
   : path.join(__dirname, "assets", "app-icon.ico");
+function resolveAssetPath(fileName) {
+  const normalized = String(fileName || "").trim();
+  if (!normalized) return "";
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "app.asar.unpacked", "assets", normalized);
+  }
+  return path.join(__dirname, "assets", normalized);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -352,14 +360,6 @@ function processLogChunk(chunk, state = {}) {
   for (const line of lines) {
     let lineChanged = false;
     const normalizedLine = normalizeLogMessage(line);
-    if (emit) {
-      broadcastLogRawLine({
-        filePath: activeLogFile,
-        line,
-        normalizedLine,
-        receivedAt: Date.now()
-      });
-    }
     if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
       if (finalizeLiveRound()) {
         lineChanged = true;
@@ -372,6 +372,16 @@ function processLogChunk(chunk, state = {}) {
       if (finalizeLiveRound()) {
         lineChanged = true;
       }
+    }
+    if (emit) {
+      broadcastLogRawLine({
+        filePath: activeLogFile,
+        line,
+        normalizedLine,
+        update,
+        state: snapshotOscState(),
+        receivedAt: Date.now()
+      });
     }
     if (didChange || lineChanged) {
       changed = true;
@@ -1156,6 +1166,7 @@ ipcMain.handle("osc:send", async (_event, message) => {
   await sendOscMessage(message);
   return true;
 });
+ipcMain.handle("app:get-asset-path", (_event, fileName) => resolveAssetPath(fileName));
 
 ipcMain.handle("log:get-state", () => snapshotOscState());
 ipcMain.handle("osc:get-state", () => snapshotOscState());
