@@ -42,6 +42,8 @@ const oscLiveState = {
   terrorIds: [],
   terrorData: [],
   result: null,
+  instanceRoster: [],
+  instanceRosterLastEvent: "",
   lastAddress: "",
   lastMessageAt: 0,
   raw: {}
@@ -99,14 +101,6 @@ function broadcastLogMessage(message) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send("log:message", message);
-    }
-  }
-}
-
-function broadcastLogRawLine(message) {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send("log:raw-line", message);
     }
   }
 }
@@ -303,6 +297,13 @@ function parseLogLine(line) {
     return update;
   }
 
+  const roster = parseInstanceRosterLine(text);
+  if (roster) {
+    if (roster.add) update.instanceRosterAdd = roster.add;
+    if (roster.remove) update.instanceRosterRemove = roster.remove;
+    update.instanceRosterLastEvent = roster.raw;
+  }
+
   const json = parseLogJsonCandidate(text);
   if (json && typeof json === "object") {
     if (json.Note !== undefined || json.note !== undefined) update.note = json.note ?? json.Note;
@@ -372,16 +373,6 @@ function processLogChunk(chunk, state = {}) {
       if (finalizeLiveRound()) {
         lineChanged = true;
       }
-    }
-    if (emit) {
-      broadcastLogRawLine({
-        filePath: activeLogFile,
-        line,
-        normalizedLine,
-        update,
-        state: snapshotOscState(),
-        receivedAt: Date.now()
-      });
     }
     if (didChange || lineChanged) {
       changed = true;
@@ -537,6 +528,40 @@ function roundTypeIdFromLabel(label) {
   return roundTypeLabelToId.get(normalized) ?? null;
 }
 
+function inferRoundType(rt, terrorCount) {
+  const roundType = coerceNumber(rt);
+  const count = coerceNumber(terrorCount);
+  if (roundType === 6 && count === 1) return 8;
+  return roundType;
+}
+
+function normalizePlayerName(name) {
+  return String(name || "")
+    .trim()
+    .replace(/^[\s"'`「『\[\(\{【]+/, "")
+    .replace(/[\s"'`」』\]\)\}】]+$/, "")
+    .replace(/\s+/g, " ");
+}
+
+function parseInstanceRosterLine(text) {
+  const line = String(text || "").trim();
+  if (!line) return null;
+
+  const joined = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error)\]\s*)?(?:OnPlayerJoined|Player Joined|Joined(?: the instance)?|Player Entered(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+  if (joined) {
+    const name = normalizePlayerName(joined[1]);
+    if (name) return { add: name, raw: line };
+  }
+
+  const left = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error)\]\s*)?(?:OnPlayerLeft|Player Left|Left(?: the instance)?|Player Exited(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+  if (left) {
+    const name = normalizePlayerName(left[1]);
+    if (name) return { remove: name, raw: line };
+  }
+
+  return null;
+}
+
 function normalizeAddress(address) {
   return String(address || "").trim().replace(/\0+$/g, "").toLowerCase();
 }
@@ -624,7 +649,8 @@ function snapshotOscState() {
     monitorMode: manualMonitorLogFile ? "manual" : "auto",
     monitorStatus: activeLogFile ? (manualMonitorLogFile ? "monitoring-manual" : "monitoring-auto") : "idle",
     note: oscLiveState.note,
-    roundType: oscLiveState.roundType,
+    rawRoundType: oscLiveState.roundType,
+    roundType: inferRoundType(oscLiveState.roundType, oscLiveState.terrorCount ?? oscLiveState.terrorData.length),
     roundTypeLabel: oscLiveState.roundTypeLabel,
     mapId: oscLiveState.mapId,
     mapName: oscLiveState.mapName,
@@ -633,6 +659,8 @@ function snapshotOscState() {
     terrorIds: [...oscLiveState.terrorIds],
     terrorData: oscLiveState.terrorData.map(item => ({ ...item })),
     result: oscLiveState.result,
+    instanceRoster: [...oscLiveState.instanceRoster],
+    instanceRosterLastEvent: oscLiveState.instanceRosterLastEvent,
     lastAddress: oscLiveState.lastAddress,
     lastMessageAt: oscLiveState.lastMessageAt,
     raw: { ...oscLiveState.raw },
@@ -647,6 +675,7 @@ function cloneLiveRoundRecord(record) {
     terrorData: Array.isArray(record.terrorData) ? record.terrorData.map(item => ({ ...item })) : [],
     terrorLabels: Array.isArray(record.terrorLabels) ? [...record.terrorLabels] : [],
     players: Array.isArray(record.players) ? [...record.players] : [],
+    instanceRoster: Array.isArray(record.instanceRoster) ? [...record.instanceRoster] : [],
     raw: record.raw && typeof record.raw === "object" ? { ...record.raw } : {}
   };
 }
@@ -655,6 +684,7 @@ function buildLiveRoundRecord() {
   const terrorData = Array.isArray(oscLiveState.terrorData)
     ? oscLiveState.terrorData.map(item => ({ ...item }))
     : [];
+  const resolvedRoundType = inferRoundType(oscLiveState.roundType, terrorData.length || oscLiveState.terrorCount);
   return {
     recordKey: `live:${liveRoundSequence}`,
     sourceIndex: liveRoundSequence,
@@ -666,7 +696,7 @@ function buildLiveRoundRecord() {
     mapId: oscLiveState.mapId,
     mapName: oscLiveState.mapName,
     rawRoundType: oscLiveState.roundType,
-    roundType: oscLiveState.roundType,
+    roundType: resolvedRoundType,
     roundTypeExtra: oscLiveState.roundTypeLabel,
     playerCount: oscLiveState.playerCount,
     players: [],
@@ -678,12 +708,14 @@ function buildLiveRoundRecord() {
       })
       .filter(Boolean),
     terrorCount: Number.isFinite(oscLiveState.terrorCount) ? oscLiveState.terrorCount : terrorData.length,
-    expectedTerrorCount: expectedTerrorCount(oscLiveState.roundType),
-    terrorComposition: terrorComposition(oscLiveState.roundType, terrorData),
+    expectedTerrorCount: expectedTerrorCount(resolvedRoundType),
+    terrorComposition: terrorComposition(resolvedRoundType, terrorData),
     result: oscLiveState.result,
     errors: "",
     content: "",
     contentLength: 0,
+    instanceRoster: [...oscLiveState.instanceRoster],
+    instanceRosterLastEvent: oscLiveState.instanceRosterLastEvent,
     raw: { ...oscLiveState.raw }
   };
 }
@@ -737,6 +769,8 @@ function applyLiveOscRecord(partial = {}) {
     oscLiveState.terrorIds = [];
     oscLiveState.terrorData = [];
     oscLiveState.result = null;
+    oscLiveState.instanceRoster = [];
+    oscLiveState.instanceRosterLastEvent = "";
     oscLiveState.raw = {};
     liveRoundHistory = [];
     liveRoundSequence = 0;
@@ -783,6 +817,34 @@ function applyLiveOscRecord(partial = {}) {
     const next = partial.result === null ? null : Number(partial.result);
     if (oscLiveState.result !== next) changed = true;
     oscLiveState.result = Number.isFinite(next) ? next : null;
+  }
+
+  if (Array.isArray(partial.instanceRoster)) {
+    const next = partial.instanceRoster.map(normalizePlayerName).filter(Boolean);
+    if (JSON.stringify(oscLiveState.instanceRoster) !== JSON.stringify(next)) changed = true;
+    oscLiveState.instanceRoster = next;
+  }
+
+  if (partial.instanceRosterAdd !== undefined) {
+    const name = normalizePlayerName(partial.instanceRosterAdd);
+    if (name && !oscLiveState.instanceRoster.includes(name)) {
+      oscLiveState.instanceRoster = [...oscLiveState.instanceRoster, name];
+      changed = true;
+    }
+  }
+
+  if (partial.instanceRosterRemove !== undefined) {
+    const name = normalizePlayerName(partial.instanceRosterRemove);
+    if (name && oscLiveState.instanceRoster.includes(name)) {
+      oscLiveState.instanceRoster = oscLiveState.instanceRoster.filter(player => player !== name);
+      changed = true;
+    }
+  }
+
+  if (partial.instanceRosterLastEvent !== undefined) {
+    const next = String(partial.instanceRosterLastEvent || "");
+    if (oscLiveState.instanceRosterLastEvent !== next) changed = true;
+    oscLiveState.instanceRosterLastEvent = next;
   }
 
   if (Array.isArray(partial.terrorIds)) {

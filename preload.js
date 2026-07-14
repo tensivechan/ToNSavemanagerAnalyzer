@@ -7,9 +7,9 @@ contextBridge.exposeInMainWorld("tonsave", {
   getAssetPath(fileName) {
     return ipcRenderer.invoke("app:get-asset-path", fileName);
   },
-    getLogState() {
-      return ipcRenderer.invoke("log:get-state");
-    },
+  getLogState() {
+    return ipcRenderer.invoke("log:get-state");
+  },
   getLogMonitorInfo() {
     return ipcRenderer.invoke("log:get-monitor-info");
   },
@@ -25,26 +25,18 @@ contextBridge.exposeInMainWorld("tonsave", {
   installUpdate() {
     return ipcRenderer.invoke("update:install");
   },
-    openAchievements() {
-      return ipcRenderer.invoke("ui:open-achievements");
-    },
-    openLogMonitor() {
-      return ipcRenderer.invoke("ui:open-log-monitor");
-    },
+  openAchievements() {
+    return ipcRenderer.invoke("ui:open-achievements");
+  },
+  openLogMonitor() {
+    return ipcRenderer.invoke("ui:open-log-monitor");
+  },
   onLogMessage(callback) {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, message) => callback(message);
     ipcRenderer.on("log:message", handler);
     return () => {
       ipcRenderer.removeListener("log:message", handler);
-    };
-  },
-  onLogRawLine(callback) {
-    if (typeof callback !== "function") return () => {};
-    const handler = (_event, message) => callback(message);
-    ipcRenderer.on("log:raw-line", handler);
-    return () => {
-      ipcRenderer.removeListener("log:raw-line", handler);
     };
   },
   onUpdateMessage(callback) {
