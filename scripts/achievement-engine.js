@@ -81,9 +81,10 @@
         mapId: 49,
         roundTypes: [10],
         result: 1,
-        instanceRosterAll: ["てんしぶさん", "Angels"]
+        instanceRosterAny: ["てんしぶさん"],
+        instanceAliveRosterAny: ["Angels"]
       },
-      source: "live",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementCelestialSeraphim",
         value: true
@@ -146,6 +147,9 @@
     const content = normalize(record.content);
     const instanceRoster = Array.isArray(record.instanceRoster)
       ? record.instanceRoster.map(normalize).filter(Boolean)
+      : [];
+    const instanceAliveRoster = Array.isArray(record.instanceAliveRoster)
+      ? record.instanceAliveRoster.map(normalize).filter(Boolean)
       : [];
 
     if (Array.isArray(criteria.roundTypes) && criteria.roundTypes.length && !criteria.roundTypes.includes(roundType)) {
@@ -221,6 +225,18 @@
     }
 
     if (Array.isArray(criteria.instanceRosterExclude) && criteria.instanceRosterExclude.length && criteria.instanceRosterExclude.some(name => instanceRoster.includes(normalize(name)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceAliveRosterAny) && criteria.instanceAliveRosterAny.length && !criteria.instanceAliveRosterAny.some(name => instanceAliveRoster.includes(normalize(name)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceAliveRosterAll) && criteria.instanceAliveRosterAll.length && !criteria.instanceAliveRosterAll.every(name => instanceAliveRoster.includes(normalize(name)))) {
+      return false;
+    }
+
+    if (Array.isArray(criteria.instanceAliveRosterExclude) && criteria.instanceAliveRosterExclude.length && criteria.instanceAliveRosterExclude.some(name => instanceAliveRoster.includes(normalize(name)))) {
       return false;
     }
 

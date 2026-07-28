@@ -44,6 +44,7 @@ const oscLiveState = {
   terrorData: [],
   result: null,
   instanceRoster: [],
+  instanceAliveRoster: [],
   instanceRosterLastEvent: "",
   lastAddress: "",
   lastMessageAt: 0,
@@ -271,6 +272,7 @@ function parseLogLine(line) {
     update.roundTypeLabel = roundTypeLabel;
     update.roundType = roundTypeIdFromLabel(roundTypeLabel);
     update.note = `${roundTypeLabel} @ ${mapName}`;
+    update.instanceAliveRoster = [...oscLiveState.instanceRoster];
     return update;
   }
 
@@ -310,6 +312,7 @@ function parseLogLine(line) {
   if (roster) {
     if (roster.add) update.instanceRosterAdd = roster.add;
     if (roster.remove) update.instanceRosterRemove = roster.remove;
+    if (roster.dead) update.instanceAliveRosterRemove = roster.dead;
     update.instanceRosterLastEvent = roster.raw;
   }
 
@@ -575,25 +578,31 @@ function parseInstanceRosterLine(text) {
   const line = String(text || "").trim();
   if (!line) return null;
 
-  const killOwner = line.match(/(?:Current owner is|Owner is|Current player is|Player is)\s+(.+?)(?:\s+and\b|$)/i);
-  if (killOwner) {
-    const name = normalizePlayerName(killOwner[1]);
+  const joinComplete = line.match(/(?:\[Behaviour\]\s*)?OnPlayerJoinComplete\s+"(.+?)"/i);
+  if (joinComplete) {
+    const name = normalizePlayerName(joinComplete[1]);
     if (name) return { add: name, raw: line };
   }
 
-  const killName = line.match(/^\[(?:DEATH|KILL|KILLED|KILLER)\]\s*\[(.+?)\]/i);
+  const leftComplete = line.match(/(?:\[Behaviour\]\s*)?OnPlayerLeft\s+"(.+?)"/i);
+  if (leftComplete) {
+    const name = normalizePlayerName(leftComplete[1]);
+    if (name) return { remove: name, raw: line };
+  }
+
+  const killName = line.match(/^\[(?:DEATH|KILL|KILLED|KILLER)\]\s*(?:\[(.+?)\]|<(.+?)>|"(.+?)"|(.+?))(?:\s|$)/i);
   if (killName) {
-    const name = normalizePlayerName(killName[1]);
-    if (name) return { add: name, raw: line };
+    const name = normalizePlayerName(killName[1] || killName[2] || killName[3] || killName[4]);
+    if (name) return { dead: name, raw: line };
   }
 
-  const joined = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error)\]\s*)?(?:OnPlayerJoined|Player Joined|Joined(?: the instance)?|Player Entered(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+  const joined = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error|Behaviour|Behavior)\]\s*)?(?:OnPlayerJoined|Player Joined|Joined(?: the instance)?|Player Entered(?: the instance)?|OnPlayerJoinComplete)\s*[:=]?\s*(.+)$/i);
   if (joined) {
     const name = normalizePlayerName(joined[1]);
     if (name) return { add: name, raw: line };
   }
 
-  const left = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error)\]\s*)?(?:OnPlayerLeft|Player Left|Left(?: the instance)?|Player Exited(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+  const left = line.match(/^(?:\[(?:INFO|DEBUG|Debug|Log|Warning|Error|Behaviour|Behavior)\]\s*)?(?:OnPlayerLeft|Player Left|Left(?: the instance)?|Player Exited(?: the instance)?)\s*[:=]?\s*(.+)$/i);
   if (left) {
     const name = normalizePlayerName(left[1]);
     if (name) return { remove: name, raw: line };
@@ -700,6 +709,7 @@ function snapshotOscState() {
     terrorData: oscLiveState.terrorData.map(item => ({ ...item })),
     result: oscLiveState.result,
     instanceRoster: [...oscLiveState.instanceRoster],
+    instanceAliveRoster: [...oscLiveState.instanceAliveRoster],
     instanceRosterLastEvent: oscLiveState.instanceRosterLastEvent,
     lastAddress: oscLiveState.lastAddress,
     lastMessageAt: oscLiveState.lastMessageAt,
@@ -717,6 +727,7 @@ function cloneLiveRoundRecord(record) {
     terrorLabels: Array.isArray(record.terrorLabels) ? [...record.terrorLabels] : [],
     players: Array.isArray(record.players) ? [...record.players] : [],
     instanceRoster: Array.isArray(record.instanceRoster) ? [...record.instanceRoster] : [],
+    instanceAliveRoster: Array.isArray(record.instanceAliveRoster) ? [...record.instanceAliveRoster] : [],
     raw: record.raw && typeof record.raw === "object" ? { ...record.raw } : {}
   };
 }
@@ -741,6 +752,8 @@ function buildLiveRoundRecord() {
     roundTypeExtra: oscLiveState.roundTypeLabel,
     playerCount: oscLiveState.playerCount,
     players: [],
+    instanceRoster: [...oscLiveState.instanceRoster],
+    instanceAliveRoster: [...oscLiveState.instanceAliveRoster],
     terrorData,
     terrorLabels: terrorData
       .map(item => {
@@ -811,6 +824,7 @@ function applyLiveOscRecord(partial = {}) {
     oscLiveState.terrorData = [];
     oscLiveState.result = null;
     oscLiveState.instanceRoster = [];
+    oscLiveState.instanceAliveRoster = [];
     oscLiveState.instanceRosterLastEvent = "";
     oscLiveState.raw = {};
     liveRoundHistory = [];
@@ -873,12 +887,42 @@ function applyLiveOscRecord(partial = {}) {
       oscLiveState.instanceRoster = [...oscLiveState.instanceRoster, name];
       changed = true;
     }
+    if (name && !oscLiveState.instanceAliveRoster.includes(name)) {
+      oscLiveState.instanceAliveRoster = [...oscLiveState.instanceAliveRoster, name];
+      changed = true;
+    }
   }
 
   if (partial.instanceRosterRemove !== undefined) {
     const name = normalizePlayerName(partial.instanceRosterRemove);
     if (name && oscLiveState.instanceRoster.includes(name)) {
       oscLiveState.instanceRoster = oscLiveState.instanceRoster.filter(player => player !== name);
+      changed = true;
+    }
+    if (name && oscLiveState.instanceAliveRoster.includes(name)) {
+      oscLiveState.instanceAliveRoster = oscLiveState.instanceAliveRoster.filter(player => player !== name);
+      changed = true;
+    }
+  }
+
+  if (partial.instanceAliveRoster !== undefined) {
+    const next = partial.instanceAliveRoster.map(normalizePlayerName).filter(Boolean);
+    if (JSON.stringify(oscLiveState.instanceAliveRoster) !== JSON.stringify(next)) changed = true;
+    oscLiveState.instanceAliveRoster = next;
+  }
+
+  if (partial.instanceAliveRosterAdd !== undefined) {
+    const name = normalizePlayerName(partial.instanceAliveRosterAdd);
+    if (name && !oscLiveState.instanceAliveRoster.includes(name)) {
+      oscLiveState.instanceAliveRoster = [...oscLiveState.instanceAliveRoster, name];
+      changed = true;
+    }
+  }
+
+  if (partial.instanceAliveRosterRemove !== undefined) {
+    const name = normalizePlayerName(partial.instanceAliveRosterRemove);
+    if (name && oscLiveState.instanceAliveRoster.includes(name)) {
+      oscLiveState.instanceAliveRoster = oscLiveState.instanceAliveRoster.filter(player => player !== name);
       changed = true;
     }
   }

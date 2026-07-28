@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.17</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.18</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1673,6 +1673,7 @@
       terrorData: [],
       result: null,
       instanceRoster: [],
+      instanceAliveRoster: [],
       instanceRosterLastEvent: "",
       lastAddress: "",
       lastMessageAt: 0,
@@ -2004,6 +2005,9 @@
             roundTypeExtra: "",
             playerCount: null,
             players: [],
+            instanceRoster: [],
+            instanceAliveRoster: [],
+            instanceRosterLastEvent: "",
             terrorData: [],
             terrorLabels: [],
             terrorCount: 0,
@@ -2031,6 +2035,7 @@
           current.roundTypeExtra = roundStart[3].trim();
           current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
           current.note = `${current.roundTypeExtra} @ ${current.mapName}`;
+          current.instanceAliveRoster = Array.isArray(current.instanceRoster) ? [...current.instanceRoster] : [];
           current.raw.logLines.push(line);
           continue;
         }
@@ -2048,6 +2053,57 @@
           if (current.roundType === null) {
             current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
           }
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        const deathRoster = line.match(/^\[(?:DEATH|KILL|KILLED|KILLER)\]\s*(?:\[(.+?)\]|<(.+?)>|(.+?))(?:\s|$)/i);
+        if (deathRoster) {
+          current = ensureCurrent(timestamp);
+          const name = value(deathRoster[1] || deathRoster[2] || deathRoster[3]).trim();
+          if (name) {
+            current.instanceAliveRoster = Array.isArray(current.instanceAliveRoster) ? current.instanceAliveRoster : [];
+            current.instanceAliveRoster = current.instanceAliveRoster.filter(player => value(player).trim().toLowerCase() !== name.toLowerCase());
+            current.players = Array.isArray(current.players) ? current.players : [];
+            if (!current.players.some(player => value(player).trim().toLowerCase() === name.toLowerCase())) {
+              current.players.push(name);
+            }
+          }
+          current.instanceRosterLastEvent = line;
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        const joinedRoster = line.match(/(?:\[Behaviour\]\s*)?(?:OnPlayerJoinComplete|OnPlayerJoined|Player Joined|Joined(?: the instance)?|Player Entered(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+        if (joinedRoster) {
+          current = ensureCurrent(timestamp);
+          const name = value(joinedRoster[1]).trim();
+          if (name) {
+            current.instanceRoster = Array.isArray(current.instanceRoster) ? current.instanceRoster : [];
+            if (!current.instanceRoster.some(player => value(player).trim().toLowerCase() === name.toLowerCase())) {
+              current.instanceRoster.push(name);
+            }
+            current.instanceAliveRoster = Array.isArray(current.instanceAliveRoster) ? current.instanceAliveRoster : [];
+            if (!current.instanceAliveRoster.some(player => value(player).trim().toLowerCase() === name.toLowerCase())) {
+              current.instanceAliveRoster.push(name);
+            }
+          }
+          current.instanceRosterLastEvent = line;
+          current.raw.logLines.push(line);
+          continue;
+        }
+
+        const leftRoster = line.match(/(?:\[Behaviour\]\s*)?(?:OnPlayerLeft|Player Left|Left(?: the instance)?|Player Exited(?: the instance)?)\s*[:=]?\s*(.+)$/i);
+        if (leftRoster) {
+          current = ensureCurrent(timestamp);
+          const name = value(leftRoster[1]).trim();
+          if (name && Array.isArray(current.instanceRoster)) {
+            current.instanceRoster = current.instanceRoster.filter(player => value(player).trim().toLowerCase() !== name.toLowerCase());
+          }
+          if (name && Array.isArray(current.instanceAliveRoster)) {
+            current.instanceAliveRoster = current.instanceAliveRoster.filter(player => value(player).trim().toLowerCase() !== name.toLowerCase());
+          }
+          current.instanceRosterLastEvent = line;
           current.raw.logLines.push(line);
           continue;
         }
@@ -2536,6 +2592,9 @@
       liveLogState.instanceRoster = Array.isArray(snapshot.instanceRoster)
         ? snapshot.instanceRoster.map(value).map(name => name.trim()).filter(Boolean)
         : [];
+      liveLogState.instanceAliveRoster = Array.isArray(snapshot.instanceAliveRoster)
+        ? snapshot.instanceAliveRoster.map(value).map(name => name.trim()).filter(Boolean)
+        : [];
       liveLogState.instanceRosterLastEvent = value(snapshot.instanceRosterLastEvent || "");
       liveLogState.lastAddress = value(snapshot.lastAddress);
       liveLogState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
@@ -2608,14 +2667,15 @@
         roundTypeExtra: value(record.roundTypeExtra || ""),
         playerCount: numberOrNull(record.playerCount),
         players: Array.isArray(record.players) ? record.players.map(value) : [],
+        instanceRoster: Array.isArray(record.instanceRoster) ? record.instanceRoster.map(value) : [],
+        instanceAliveRoster: Array.isArray(record.instanceAliveRoster) ? record.instanceAliveRoster.map(value) : [],
+        instanceRosterLastEvent: value(record.instanceRosterLastEvent || ""),
         terrorData,
         terrorLabels: Array.isArray(record.terrorLabels) ? record.terrorLabels.map(value) : [],
         terrorCount: numberOrNull(record.terrorCount) ?? terrorData.length,
         expectedTerrorCount: numberOrNull(record.expectedTerrorCount),
         terrorComposition: value(record.terrorComposition || ""),
         result: numberOrNull(record.result),
-        instanceRoster: Array.isArray(record.instanceRoster) ? record.instanceRoster.map(value) : [],
-        instanceRosterLastEvent: value(record.instanceRosterLastEvent || ""),
         errors: value(record.errors || ""),
         content: value(record.content || ""),
         contentLength: numberOrNull(record.contentLength) ?? 0,
