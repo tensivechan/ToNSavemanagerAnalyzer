@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.18</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.19</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1637,6 +1637,9 @@
         monitorMode: "auto",
         monitorStatus: "idle",
         lastMessageAt: 0,
+        instanceRoster: [],
+        instanceAliveRoster: [],
+        instanceRosterLastEvent: "",
         rawLines: []
       },
       achievementSource: localStorage.getItem("tonsave-achievement-source") === "live" ? "live" : "imported",
@@ -1837,7 +1840,7 @@
               syncMonitorState(snapshot);
             })
             .catch(() => {});
-        }, 2500);
+        }, 1000);
       }
       if (window.tonsave && typeof window.tonsave.getLogMonitorInfo === "function") {
         window.tonsave.getLogMonitorInfo()
@@ -2629,6 +2632,15 @@
       state.monitor.monitorMode = value(snapshot.monitorMode || (state.monitor.monitoredRequestedPath ? "manual" : "auto"));
       state.monitor.monitorStatus = value(snapshot.monitorStatus || (state.monitor.monitoredFilePath ? "monitoring" : "idle"));
       state.monitor.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
+      if (Array.isArray(snapshot.instanceRoster)) {
+        state.monitor.instanceRoster = snapshot.instanceRoster.map(value).map(name => name.trim()).filter(Boolean);
+      }
+      if (Array.isArray(snapshot.instanceAliveRoster)) {
+        state.monitor.instanceAliveRoster = snapshot.instanceAliveRoster.map(value).map(name => name.trim()).filter(Boolean);
+      }
+      if (snapshot.instanceRosterLastEvent !== undefined) {
+        state.monitor.instanceRosterLastEvent = value(snapshot.instanceRosterLastEvent || "");
+      }
       state.monitor.monitorFileName = value(snapshot.monitorFileName || "");
       state.monitor.monitorFileSize = numberOrNull(snapshot.monitorFileSize) || 0;
       state.monitor.monitorFileUpdatedAt = numberOrNull(snapshot.monitorFileUpdatedAt) || 0;
@@ -2723,8 +2735,14 @@
 
     function renderInstanceRoster() {
       if (!els.monitorRoster || !els.monitorRosterHint) return;
-      const roster = Array.isArray(liveLogState.instanceRoster) ? liveLogState.instanceRoster : [];
-      const eventText = value(liveLogState.instanceRosterLastEvent || "");
+      const rosterAlive = Array.isArray(state.monitor.instanceAliveRoster) && state.monitor.instanceAliveRoster.length
+        ? state.monitor.instanceAliveRoster
+        : (Array.isArray(liveLogState.instanceAliveRoster) ? liveLogState.instanceAliveRoster : []);
+      const rosterAll = Array.isArray(state.monitor.instanceRoster) && state.monitor.instanceRoster.length
+        ? state.monitor.instanceRoster
+        : (Array.isArray(liveLogState.instanceRoster) ? liveLogState.instanceRoster : []);
+      const roster = rosterAlive.length ? rosterAlive : rosterAll;
+      const eventText = value(state.monitor.instanceRosterLastEvent || liveLogState.instanceRosterLastEvent || "");
       els.monitorRoster.innerHTML = "";
       if (!roster.length) {
         els.monitorRosterHint.textContent = eventText || "まだ判別できていません";

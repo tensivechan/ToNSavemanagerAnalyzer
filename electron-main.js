@@ -22,6 +22,14 @@ let liveRoundHistory = [];
 let liveRoundSequence = 0;
 let liveRoundFinalizedKey = "";
 let monitorRawLines = [];
+let monitorRosterCache = {
+  path: "",
+  size: -1,
+  mtimeMs: -1,
+  instanceRoster: [],
+  instanceAliveRoster: [],
+  instanceRosterLastEvent: ""
+};
 const updateState = {
   status: "idle",
   currentVersion: "",
@@ -429,6 +437,14 @@ async function refreshDebugLogTail() {
     activeLogFile = resolved.path;
     activeLogOffset = 0;
     activeLogRemainder = "";
+    monitorRosterCache = {
+      path: "",
+      size: -1,
+      mtimeMs: -1,
+      instanceRoster: [],
+      instanceAliveRoster: [],
+      instanceRosterLastEvent: ""
+    };
     applyLiveOscRecord({ reset: true });
     broadcastLogMessage({
       filePath: activeLogFile,
@@ -487,6 +503,14 @@ function stopDebugLogWatcher() {
   liveRoundSequence = 0;
   liveRoundFinalizedKey = "";
   monitorRawLines = [];
+  monitorRosterCache = {
+    path: "",
+    size: -1,
+    mtimeMs: -1,
+    instanceRoster: [],
+    instanceAliveRoster: [],
+    instanceRosterLastEvent: ""
+  };
 }
 
 function coerceNumber(value) {
@@ -609,6 +633,102 @@ function parseInstanceRosterLine(text) {
   }
 
   return null;
+}
+
+function createRosterSnapshot() {
+  return {
+    instanceRoster: [],
+    instanceAliveRoster: [],
+    instanceRosterLastEvent: ""
+  };
+}
+
+function applyRosterSnapshotLine(snapshot, text) {
+  const line = normalizeLogMessage(text);
+  const roster = parseInstanceRosterLine(line);
+  if (!roster) return snapshot;
+
+  if (roster.add) {
+    const name = normalizePlayerName(roster.add);
+    if (name && !snapshot.instanceRoster.includes(name)) {
+      snapshot.instanceRoster.push(name);
+    }
+    if (name && !snapshot.instanceAliveRoster.includes(name)) {
+      snapshot.instanceAliveRoster.push(name);
+    }
+  }
+
+  if (roster.remove) {
+    const name = normalizePlayerName(roster.remove);
+    if (name) {
+      snapshot.instanceRoster = snapshot.instanceRoster.filter(player => player.toLowerCase() !== name.toLowerCase());
+      snapshot.instanceAliveRoster = snapshot.instanceAliveRoster.filter(player => player.toLowerCase() !== name.toLowerCase());
+    }
+  }
+
+  if (roster.dead) {
+    const name = normalizePlayerName(roster.dead);
+    if (name) {
+      snapshot.instanceAliveRoster = snapshot.instanceAliveRoster.filter(player => player.toLowerCase() !== name.toLowerCase());
+    }
+  }
+
+  snapshot.instanceRosterLastEvent = roster.raw || line;
+  return snapshot;
+}
+
+function rebuildRosterSnapshotFromText(text) {
+  const snapshot = createRosterSnapshot();
+  const lines = String(text || "").split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    applyRosterSnapshotLine(snapshot, line);
+  }
+  return snapshot;
+}
+
+async function getRosterSnapshotForPath(filePath, stat = null) {
+  const normalizedPath = String(filePath || "").trim();
+  if (!normalizedPath) {
+    monitorRosterCache = {
+      path: "",
+      size: -1,
+      mtimeMs: -1,
+      instanceRoster: [],
+      instanceAliveRoster: [],
+      instanceRosterLastEvent: ""
+    };
+    return createRosterSnapshot();
+  }
+
+  const fileStat = stat || await fs.promises.stat(normalizedPath).catch(() => null);
+  if (!fileStat || !fileStat.isFile()) {
+    return createRosterSnapshot();
+  }
+
+  if (
+    monitorRosterCache.path === normalizedPath &&
+    monitorRosterCache.size === fileStat.size &&
+    monitorRosterCache.mtimeMs === fileStat.mtimeMs
+  ) {
+    return {
+      instanceRoster: [...monitorRosterCache.instanceRoster],
+      instanceAliveRoster: [...monitorRosterCache.instanceAliveRoster],
+      instanceRosterLastEvent: monitorRosterCache.instanceRosterLastEvent
+    };
+  }
+
+  const content = await fs.promises.readFile(normalizedPath, "utf8").catch(() => "");
+  const snapshot = rebuildRosterSnapshotFromText(content);
+  monitorRosterCache = {
+    path: normalizedPath,
+    size: fileStat.size,
+    mtimeMs: fileStat.mtimeMs,
+    instanceRoster: [...snapshot.instanceRoster],
+    instanceAliveRoster: [...snapshot.instanceAliveRoster],
+    instanceRosterLastEvent: snapshot.instanceRosterLastEvent
+  };
+  return snapshot;
 }
 
 function normalizeAddress(address) {
@@ -1323,11 +1443,13 @@ ipcMain.handle("log:get-monitor-info", async () => {
   const monitoredPath = resolved && resolved.path ? resolved.path : activeLogFile;
   let fileSize = 0;
   let fileUpdatedAt = 0;
+  let rosterSnapshot = createRosterSnapshot();
   if (monitoredPath) {
     const stat = await fs.promises.stat(monitoredPath).catch(() => null);
     if (stat && stat.isFile()) {
       fileSize = stat.size;
       fileUpdatedAt = stat.mtimeMs;
+      rosterSnapshot = await getRosterSnapshotForPath(monitoredPath, stat).catch(() => createRosterSnapshot());
     }
   }
   return {
@@ -1341,6 +1463,9 @@ ipcMain.handle("log:get-monitor-info", async () => {
     monitorFileSize: fileSize,
     monitorFileUpdatedAt: fileUpdatedAt,
     lastMessageAt: oscLiveState.lastMessageAt,
+    instanceRoster: rosterSnapshot.instanceRoster,
+    instanceAliveRoster: rosterSnapshot.instanceAliveRoster,
+    instanceRosterLastEvent: rosterSnapshot.instanceRosterLastEvent,
     monitorRawLines: monitorRawLines.map(entry => ({ ...entry }))
   };
 });
