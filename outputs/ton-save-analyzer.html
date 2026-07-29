@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.20</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.21</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1348,7 +1348,7 @@
                 <th>File</th>
                 <th>RoundType</th>
                 <th>MapID</th>
-                <th>TerrorID</th>
+                <th>TerrorID / Name</th>
                 <th>Player Count</th>
               </tr>
             </thead>
@@ -2786,7 +2786,7 @@
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
       els.liveTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
-        ? `TD ${formatTerrorIds(record.terrorData)}`
+        ? `TD ${formatTerrorMatches(record.terrorData)}`
         : "TD --";
       els.liveResult.textContent = record && record.result !== null
         ? (record.result === 1 ? "Result Win" : "Result Lose")
@@ -2906,7 +2906,7 @@
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
       els.monitorTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
-        ? `TD ${formatTerrorIds(record.terrorData)}`
+        ? `TD ${formatTerrorMatches(record.terrorData)}`
         : "TD --";
       els.monitorResult.textContent = record && record.result !== null
         ? (record.result === 1 ? "Result Win" : "Result Lose")
@@ -3057,7 +3057,7 @@
           td(record.sourceFile || ""),
           td(formatRoundType(record.roundType)),
           td(formatMapLabel(record.mapId)),
-          td(formatTerrorIds(record.terrorData), terrorCellClass(record)),
+          td(formatTerrorMatches(record.terrorData), terrorCellClass(record)),
           td(record.playerCount ?? record.players.length)
         ].join("");
         els.recordsBody.appendChild(tr);
@@ -3091,7 +3091,7 @@
           <div class="k">Map Name</div><div>${escapeHtml(formatMapLabel(record.mapId))}</div>
           <div class="k">RoundType</div><div>${escapeHtml(formatRoundType(record.roundType))}</div>
           <div class="k">RType</div><div>${escapeHtml(record.roundTypeExtra ?? "")}</div>
-          <div class="k">TerrorID</div><div>${escapeHtml(formatTerrorIds(record.terrorData))}</div>
+          <div class="k">TerrorID / Name</div><div>${escapeHtml(formatTerrorMatches(record.terrorData))}</div>
           <div class="k">内訳</div><div>${escapeHtml(record.terrorComposition || "")}</div>
           <div class="k">Player Count</div><div>${record.playerCount ?? ""}</div>
           <div class="k">RTerrors</div><div>${escapeHtml(record.errors ?? "")}</div>
@@ -3100,7 +3100,7 @@
         ${players}
         <h2>TD</h2>
         <div class="kv">
-          <div class="k">番号</div><div>${escapeHtml(formatTerrorIds(record.terrorData))}</div>
+          <div class="k">番号</div><div>${escapeHtml(formatTerrorMatches(record.terrorData))}</div>
         </div>
       `;
     }
@@ -3137,7 +3137,7 @@
     }
 
     function formatTerrors(record) {
-      const labels = formatTerrorIds(record.terrorData);
+      const labels = formatTerrorMatches(record.terrorData);
       if (!record.expectedTerrorCount) return labels;
       const count = record.terrorCount;
       const status = count === record.expectedTerrorCount ? `${count}体` : `${count}/${record.expectedTerrorCount}体`;
@@ -3199,6 +3199,19 @@
       return summarizeTd(tdArray);
     }
 
+    function formatTerrorEntry(item) {
+      if (!item || typeof item !== "object") return "";
+      const id = Number(item.i);
+      if (!Number.isFinite(id)) return "";
+      const name = knownTerrors.get(id);
+      return name ? `${id}: ${name}` : String(id);
+    }
+
+    function formatTerrorMatches(tdArray) {
+      if (!Array.isArray(tdArray) || !tdArray.length) return "";
+      return tdArray.map(formatTerrorEntry).filter(Boolean).join(" / ");
+    }
+
     function formatTime(input) {
       if (!input) return "";
       const date = new Date(input);
@@ -3231,6 +3244,7 @@
         expectedTerrorCount: record.expectedTerrorCount,
         terrorComposition: record.terrorComposition,
         td: summarizeTd(record.terrorData),
+        tdMatches: formatTerrorMatches(record.terrorData),
         pc: record.playerCount,
         players: record.players.join("; "),
         rawRoundType: record.rawRoundType,
@@ -3256,6 +3270,7 @@
         expectedTerrorCount: record.expectedTerrorCount,
         terrorComposition: record.terrorComposition,
         rType: record.roundTypeExtra,
+        tdMatches: formatTerrorMatches(record.terrorData),
         pc: record.playerCount,
         players: record.players,
         td: record.terrorData,
