@@ -677,7 +677,14 @@ function applyRosterSnapshotLine(snapshot, text) {
   return snapshot;
 }
 
-function rebuildRosterSnapshotFromText(text) {
+function isTonWorldEntryLine(text) {
+  const line = normalizeLogMessage(text);
+  if (!line) return false;
+  if (!/Terrors of Nowhere/i.test(line)) return false;
+  return /(joined|entered|entering|loading|world|instance|portal)/i.test(line);
+}
+
+function rebuildRosterSnapshotWithoutSession(text) {
   const snapshot = createRosterSnapshot();
   const lines = String(text || "").split(/\r?\n/);
   for (const line of lines) {
@@ -685,6 +692,26 @@ function rebuildRosterSnapshotFromText(text) {
     applyRosterSnapshotLine(snapshot, line);
   }
   return snapshot;
+}
+
+function rebuildRosterSnapshotFromText(text) {
+  let snapshot = createRosterSnapshot();
+  let sessionActive = false;
+  let sawTonWorld = false;
+  const lines = String(text || "").split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    if (isTonWorldEntryLine(line)) {
+      sessionActive = true;
+      sawTonWorld = true;
+      snapshot = createRosterSnapshot();
+      snapshot.instanceRosterLastEvent = normalizeLogMessage(line);
+      continue;
+    }
+    if (!sessionActive) continue;
+    applyRosterSnapshotLine(snapshot, line);
+  }
+  return sawTonWorld ? snapshot : rebuildRosterSnapshotWithoutSession(text);
 }
 
 async function getRosterSnapshotForPath(filePath, stat = null) {

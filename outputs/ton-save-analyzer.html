@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.19</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.20</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -2695,6 +2695,65 @@
       };
     }
 
+    function deriveRoundRecordFromMonitorLines(lines = []) {
+      let record = null;
+      for (const entry of lines) {
+        const line = value(entry && entry.line || "").trim();
+        if (!line) continue;
+        const roundStart = line.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
+        if (roundStart) {
+          record = {
+            note: `${roundStart[3].trim()} @ ${roundStart[1].trim()}`,
+            mapId: numberOrNull(roundStart[2]),
+            mapName: roundStart[1].trim(),
+            roundType: roundTypeIdFromLabel(roundStart[3].trim()),
+            roundTypeExtra: roundStart[3].trim(),
+            terrorData: [],
+            terrorCount: null,
+            result: null
+          };
+          continue;
+        }
+        const killers = line.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
+        if (killers) {
+          record = record || {
+            note: "",
+            mapId: null,
+            mapName: "",
+            roundType: roundTypeIdFromLabel(killers[2].trim()),
+            roundTypeExtra: killers[2].trim(),
+            terrorData: [],
+            terrorCount: null,
+            result: null
+          };
+          const terrorData = killers[1]
+            .trim()
+            .split(/\s+/)
+            .map(value => numberOrNull(value))
+            .filter(value => value !== null)
+            .map(i => ({ i }));
+          record.terrorData = terrorData;
+          record.terrorCount = terrorData.length;
+          record.roundTypeExtra = killers[2].trim();
+          if (record.roundType === null || record.roundType === undefined) {
+            record.roundType = roundTypeIdFromLabel(record.roundTypeExtra);
+          }
+          continue;
+        }
+        if (/^Lived in round\.$/i.test(line)) {
+          record = record || {};
+          record.result = 1;
+          continue;
+        }
+        if (/^Died in round\.$/i.test(line) || /^You Died iN the Round$/i.test(line) || /^Player lost, not killer$/i.test(line)) {
+          record = record || {};
+          record.result = 0;
+          continue;
+        }
+      }
+      return record;
+    }
+
     function getAchievementRecords() {
       return state.achievementSource === "live"
         ? (Array.isArray(state.liveRecords) ? state.liveRecords : [])
@@ -2702,7 +2761,8 @@
     }
 
     function renderLivePanel() {
-      const record = state.liveCurrentRecord || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
+      const monitorFallback = deriveRoundRecordFromMonitorLines(state.monitor.rawLines || []);
+      const record = state.liveCurrentRecord || monitorFallback || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
       const hasRound = Boolean(
         record && (
           record.note ||
@@ -2794,7 +2854,8 @@
 
     function renderMonitorView() {
       if (!els.monitorFilePath) return;
-      const record = state.liveCurrentRecord || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
+      const monitorFallback = deriveRoundRecordFromMonitorLines(state.monitor.rawLines || []);
+      const record = state.liveCurrentRecord || monitorFallback || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
       const hasRound = Boolean(
         record && (
           record.note ||
