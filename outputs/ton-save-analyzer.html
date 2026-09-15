@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.22</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.23</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1447,58 +1447,14 @@
   </div>
 
   <script src="../scripts/achievement-engine.js"></script>
-  <script src="../scripts/terror-id-name-mapping-data.js"></script>
   <script>
-    const legacyKnownTerrors = new Map([
+    const knownTerrors = new Map([
       [0, "The Meatball Man / Huggy"], [2, "Demented Spongebob"], [4, "HER"],
       [9, "Toren's Shadow / MR MEGA"], [13, "Angry Munci / Specimen 5"],
       [29, "Fusion Pilot / Karol_Corpse"], [37, "Something Wicked"],
       [50, "Don't Touch Me"], [79, "Waterwraith"], [90, "Tricky"],
       [96, "Those Olden Days"], [131, "Waldo"]
     ]);
-    const terrorMappingById = new Map(
-      Object.entries((globalThis.TonTerrorMapping && globalThis.TonTerrorMapping.byId) || {})
-        .map(([id, entry]) => [Number(id), entry])
-        .filter(([id]) => Number.isFinite(id))
-    );
-
-    function getTerrorEntry(id) {
-      const numericId = Number(id);
-      if (!Number.isFinite(numericId)) return null;
-      if (terrorMappingById.has(numericId)) return terrorMappingById.get(numericId);
-      if (legacyKnownTerrors.has(numericId)) {
-        const name = legacyKnownTerrors.get(numericId);
-        return {
-          id: numericId,
-          primaryName: name,
-          latestName: name,
-          candidateCount: 1,
-          candidates: [{ name, count: 1 }]
-        };
-      }
-      return null;
-    }
-
-    function summarizeTerrorEntry(entry) {
-      if (!entry) return "";
-      const primary = String(entry.primaryName || entry.latestName || "").trim();
-      const latest = String(entry.latestName || "").trim();
-      const parts = [];
-      if (primary) parts.push(primary);
-      if (latest && latest !== primary) parts.push(latest);
-      const candidateCount = Number(entry.candidateCount || (Array.isArray(entry.candidates) ? entry.candidates.length : 0)) || 0;
-      if (candidateCount > 1) parts.push(`+${candidateCount - 1}候補`);
-      return parts.join(" / ");
-    }
-
-    function summarizeTerrorCandidates(entry, limit = 5) {
-      if (!entry || !Array.isArray(entry.candidates) || !entry.candidates.length) return "";
-      return entry.candidates.slice(0, limit).map(candidate => {
-        const label = String(candidate.name || "").trim();
-        const count = Number(candidate.count || 0);
-        return count > 0 ? `${label}(${count})` : label;
-      }).filter(Boolean).join(" / ");
-    }
 
     const mapNames = new Map([
       [0, "Warehouse"],
@@ -2028,8 +1984,7 @@
         current.terrorLabels = Array.isArray(current.terrorData)
           ? current.terrorData.map(item => {
               const id = Number(item && item.i);
-              const entry = getTerrorEntry(id);
-              const name = entry ? (entry.primaryName || entry.latestName || "") : "";
+              const name = knownTerrors.get(id);
               return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
             }).filter(Boolean)
           : [];
@@ -2190,8 +2145,7 @@
       const td = Array.isArray(row.TD) ? row.TD : [];
       const terrorNames = td.map(item => {
         const id = Number(item && item.i);
-        const entry = getTerrorEntry(id);
-        const name = entry ? (entry.primaryName || entry.latestName || "") : "";
+        const name = knownTerrors.get(id);
         return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
       }).filter(Boolean);
       const content = typeof row.Content === "string" ? row.Content : "";
@@ -3148,10 +3102,6 @@
         <div class="kv">
           <div class="k">番号</div><div>${escapeHtml(formatTerrorMatches(record.terrorData))}</div>
         </div>
-        <h2>TD候補</h2>
-        <div class="kv">
-          <div class="k">候補一覧</div><div>${escapeHtml(record.terrorData.map(formatTerrorCandidateList).filter(Boolean).join(" | ") || "候補なし")}</div>
-        </div>
       `;
     }
 
@@ -3253,25 +3203,13 @@
       if (!item || typeof item !== "object") return "";
       const id = Number(item.i);
       if (!Number.isFinite(id)) return "";
-      const entry = getTerrorEntry(id);
-      if (!entry) return String(id);
-      const label = summarizeTerrorEntry(entry);
-      return label ? `${id}: ${label}` : String(id);
+      const name = knownTerrors.get(id);
+      return name ? `${id}: ${name}` : String(id);
     }
 
     function formatTerrorMatches(tdArray) {
       if (!Array.isArray(tdArray) || !tdArray.length) return "";
       return tdArray.map(formatTerrorEntry).filter(Boolean).join(" / ");
-    }
-
-    function formatTerrorCandidateList(item) {
-      if (!item || typeof item !== "object") return "";
-      const id = Number(item.i);
-      if (!Number.isFinite(id)) return "";
-      const entry = getTerrorEntry(id);
-      if (!entry || !Array.isArray(entry.candidates) || !entry.candidates.length) return "";
-      const candidates = summarizeTerrorCandidates(entry, 8);
-      return candidates ? `${id}: ${candidates}` : String(id);
     }
 
     function formatTime(input) {
@@ -3307,7 +3245,6 @@
         terrorComposition: record.terrorComposition,
         td: summarizeTd(record.terrorData),
         tdMatches: formatTerrorMatches(record.terrorData),
-        tdCandidates: record.terrorData.map(formatTerrorCandidateList).filter(Boolean).join(" | "),
         pc: record.playerCount,
         players: record.players.join("; "),
         rawRoundType: record.rawRoundType,
@@ -3334,7 +3271,6 @@
         terrorComposition: record.terrorComposition,
         rType: record.roundTypeExtra,
         tdMatches: formatTerrorMatches(record.terrorData),
-        tdCandidates: record.terrorData.map(formatTerrorCandidateList).filter(Boolean).join(" | "),
         pc: record.playerCount,
         players: record.players,
         td: record.terrorData,
