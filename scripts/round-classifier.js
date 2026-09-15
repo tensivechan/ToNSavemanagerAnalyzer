@@ -86,6 +86,7 @@
   ["rift monsters", 107]
 ]);
   for (const [id, name] of names) aliases.set(normalize(name), id);
+  for (const [label, id] of [["fog (alternate)",52],["ghost (alternate)",53],["霧 (alternate)",52],["ゴースト (alternate)",53],["twilight",102],["トワイライト",102]]) aliases.set(label,id);
   const specialNames = new Map([
     ['hungry home invader', 'Hungry Home Invader'],
     ['atrached', 'Atrached'],
@@ -154,6 +155,7 @@
       roundType: typeId(match[2]), roundTypeLabel: match[2].trim(), roundPhase: 'active'
     };
     if (/^(?:RoundOver|Round was valid\.|Verified Round End)$/i.test(text)) return {finalize: true, roundPhase: 'ended'};
+    if (/^Round Won[.!]?$/i.test(text)) return {result: 1, finalize: true, roundPhase: 'ended'};
     if (/^Lived in round\.$/i.test(text)) return {result: 1};
     if (/^(?:Died in round\.|You Died iN the Round|Player lost, not killer)$/i.test(text)) return {result: 0};
     match = text.match(/^(?:Terror Name|Note|Name)\s*[:=]\s*(.+)$/i);

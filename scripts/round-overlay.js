@@ -21,10 +21,9 @@
       const label = String(record.roundTypeLabel ?? record.roundTypeExtra ?? "").trim();
       const bilingual = /[a-z]/i.test(label) && window.TonRounds.typeId(label) === identity.roundType && label !== identity.roundTypeName;
       round = bilingual ? `${label}/${identity.roundTypeName}` : identity.roundTypeName;
-      if (record.roundPhase === "ended") round = `終了 · ${round}`;
       map = String(record.mapName || (record.mapId !== null && record.mapId !== undefined ? `Map ${record.mapId}` : "マップ情報待ち"));
       terror = cleanName(record.note) || cleanName(identity.specialName) ||
-        (identity.terrorIds.length ? `TerrorID ${identity.terrorIds.join(" / ")}` : "テラー情報待ち");
+        window.TonTerrorNameResolver.resolve(record) || "テラー名未取得";
     }
     for (const [key, text] of Object.entries({round, map, terror})) {
       fields[key].textContent = text;

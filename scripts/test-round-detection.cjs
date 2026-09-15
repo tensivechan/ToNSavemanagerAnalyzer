@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const rounds = require('./round-classifier.js');
+const terrorNames = require('./terror-name-resolver.js');
 const localRequire = createRequire(path.join(root, 'electron-main.js'));
 const mainCode = fs.readFileSync(path.join(root, 'electron-main.js'), 'utf8');
 const noop = () => {};
@@ -121,6 +122,26 @@ async function testAchievements() {
   const classics = [{recordKey:'a',roundPhase:'ended',roundType:1}, {recordKey:'b',roundPhase:'ended',roundType:1}];
   const progress = live.progress([...classics, classics[0], {recordKey:'c',roundPhase:'active',roundType:1}]);
   assert.equal(progress.find(item => item.id === 'classic_500').count, 2);
+  for (const endFirst of [false, true]) {
+    reset();
+    const wonAchievements = createAchievementContext().achievements.live;
+    feed(start('Midnight'), 'Killers have been set - 29 2 0 // Round type is Midnight');
+    assert.equal((await wonAchievements.scan([snapshot().liveRecord], send)).length, 0);
+    if (endFirst) feed('RoundOver');
+    feed('2026.09.16 12:00:00 Log - Round Won');
+    const won = snapshot();
+    assert.equal(won.liveRecord.result, 1);
+    assert.equal(won.liveRecord.roundPhase, 'ended');
+    assert.equal(won.liveRecords.length, 1);
+    assert.equal(won.liveRecords[0].result, 1);
+    assert.equal((await wonAchievements.scan(won.liveRecords, send)).length, 1, 'Round Won must unlock the survival achievement');
+    feed('Round Won', 'RoundOver', 'Verified Round End');
+    assert.equal(snapshot().liveRecords.length, 1);
+    assert.equal((await wonAchievements.scan(snapshot().liveRecords, send)).length, 0, 'Repeated win/end logs must not unlock twice');
+    feed(start('Midnight'));
+    assert.equal(snapshot().liveRecord.result, null, 'A win must not carry into the next round');
+  }
+  assert.equal(rounds.parseLogLine('Round Won: unrelated text'), null);
   console.log('PASS: live preview, no early unlock, unknown values, deduplication and stored unlocks');
 }
 
@@ -191,6 +212,7 @@ async function testOverlay() {
     document: {getElementById: id => fields[id]},
     window: {
       TonRounds: rounds,
+      TonTerrorNameResolver: terrorNames,
       tonsave: {
         onLogMessage(callback) { update = callback; return () => unsubscribeCount++; },
         getLogState: () => new Promise(resolve => { finishInitial = resolve; })
@@ -200,7 +222,7 @@ async function testOverlay() {
     }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'round-overlay.js'), 'utf8'), context);
-  const record = {roundPhase:'active',roundType:1,roundTypeExtra:'Classic',mapName:'Nexus',note:'The Painter: 続行希望なし',terrorData:[{i:15}]};
+  const record = {roundPhase:'active',roundType:1,roundTypeExtra:'Classic',mapName:'Nexus',note:'The Painter: 続行希望なし',terrorData:[{i:15}],terrorDataSource:'log-slots'};
   update({state:{liveRecord:record}});
   assert.equal(fields.roundType.textContent, 'Classic/クラシック');
   assert.equal(fields.mapName.textContent, 'Nexus');
@@ -210,9 +232,13 @@ async function testOverlay() {
   assert.equal(fields.terrorName.textContent, 'The Painter', 'A stale initial snapshot must not replace a newer event');
   update({state:{liveRecord:{...record,note:'<img src=x>：継続希望あり',roundPhase:'ended'}}});
   assert.equal(fields.terrorName.textContent, '<img src=x>', 'Names must be rendered as text');
-  assert.match(fields.roundType.textContent, /^終了/);
+  assert.equal(fields.roundType.textContent, 'Classic/クラシック');
   update({state:{liveRecord:{...record,note:'',terrorData:[{i:15},{i:0},{i:0}]}}});
-  assert.equal(fields.terrorName.textContent, 'TerrorID 15 / 0 / 0');
+  assert.equal(fields.terrorName.textContent, 'Purple Guy');
+  update({state:{liveRecord:{...record,note:'',terrorData:[{i:23},{i:0},{i:0}]}}});
+  assert.equal(fields.terrorName.textContent, 'The Painter');
+  update({state:{liveRecord:{...record,note:'',terrorData:[{i:9999},{i:0},{i:0}]}}});
+  assert.equal(fields.terrorName.textContent, 'テラー名未取得');
   update({state:{liveRecord:null}});
   assert.equal(fields.roundType.textContent, 'ラウンド待機中');
   assert.equal(fields.mapName.textContent, '');
@@ -259,4 +285,23 @@ async function testOverlay() {
   console.log('PASS: overlay contents, updates, topmost settings, singleton, close/reopen and cleanup');
 }
 
+function testTerrorNames() {
+  const record = {roundPhase:'active',roundType:1,terrorDataSource:'log-slots',terrorData:[{i:0},{i:0},{i:0}]};
+  const before=JSON.stringify(record);
+  assert.equal(terrorNames.resolve(record),'Huggy');
+  assert.equal(terrorNames.resolve({...record,roundType:51}),'Decayed Sponge');
+  assert.equal(terrorNames.resolve({...record,roundType:10}),"Guidance & The Booboo's");
+  assert.equal(terrorNames.resolve({...record,roundType:104}),'The Meatball Man');
+  assert.equal(terrorNames.resolve({...record,roundType:100}),'PSYCHOSIS');
+  assert.equal(terrorNames.resolve({...record,roundType:50,terrorData:[{i:23},{i:0},{i:0}]}),'The Painter & Huggy & Decayed Sponge');
+  assert.equal(terrorNames.resolve({...record,roundType:6}),'Huggy (LVL 3)');
+  assert.equal(terrorNames.resolve({...record,roundType:5,terrorData:[{i:35}]}),'Epic Bonnie');
+  assert.equal(terrorNames.resolve({...record,roundType:52,roundTypeExtra:'Fog (Alternate)'}),'Decayed Sponge');
+  assert.equal(terrorNames.resolve({...record,roundType:999}),'テラー名未取得');
+  assert.equal(terrorNames.resolve({roundType:1,terrorData:[{i:0,g:1},{i:23,g:0}]}),'Decayed Sponge & The Painter');
+  assert.equal(JSON.stringify(record),before,'Name resolution must preserve raw IDs');
+  console.log('PASS: names by round/group, padded zero slots, levels, variants and unknown IDs');
+}
+
+testTerrorNames();
 testAchievements().then(testRenderer).then(testOverlay).catch(error => { console.error(error); process.exitCode = 1; });
