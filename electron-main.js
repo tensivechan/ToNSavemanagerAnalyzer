@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const dgram = require("node:dgram");
 const os = require("node:os");
 const path = require("path");
+const TonRounds = require("./scripts/round-classifier.js");
 
 log.transports.file.level = "info";
 
@@ -20,7 +21,6 @@ let activeLogRemainder = "";
 let manualMonitorLogFile = "";
 let liveRoundHistory = [];
 let liveRoundSequence = 0;
-let liveRoundFinalizedKey = "";
 let monitorRawLines = [];
 let monitorRosterCache = {
   path: "",
@@ -41,6 +41,10 @@ const updateState = {
 };
 updateState.currentVersion = app.getVersion();
 const oscLiveState = {
+  roundPhase: "waiting",
+  startedAt: 0,
+  specialRoundName: "",
+  terrorDataSource: "",
   note: "",
   roundType: null,
   roundTypeLabel: "",
@@ -253,8 +257,10 @@ function parseLogTerrorData(value) {
   }
 
   if (typeof value === "string" && value.trim()) {
-    const json = parseLogJsonCandidate(value);
-    if (Array.isArray(json)) return parseLogTerrorData(json);
+    try {
+      const json = JSON.parse(value);
+      if (Array.isArray(json)) return parseLogTerrorData(json);
+    } catch { /* plain ID list */ }
     return value
       .split(/[\s,;|]+/)
       .map(item => Number(item))
@@ -270,51 +276,8 @@ function parseLogLine(line) {
   if (!text) return null;
   const update = {};
 
-  const roundStartMatch = text.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
-  if (roundStartMatch) {
-    const mapName = roundStartMatch[1].trim();
-    const mapId = Number(roundStartMatch[2]);
-    const roundTypeLabel = roundStartMatch[3].trim();
-    update.mapName = mapName;
-    update.mapId = mapId;
-    update.roundTypeLabel = roundTypeLabel;
-    update.roundType = roundTypeIdFromLabel(roundTypeLabel);
-    update.note = `${roundTypeLabel} @ ${mapName}`;
-    update.instanceAliveRoster = [...oscLiveState.instanceRoster];
-    return update;
-  }
-
-  const killersMatch = text.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
-  if (killersMatch) {
-    const terrorData = killersMatch[1]
-      .trim()
-      .split(/\s+/)
-      .map(value => Number(value))
-      .filter(Number.isFinite)
-      .map(i => ({ i }));
-    const roundTypeLabel = killersMatch[2].trim();
-    update.terrorData = terrorData;
-    update.terrorCount = terrorData.length;
-    update.roundTypeLabel = roundTypeLabel;
-    if (update.roundType === undefined || update.roundType === null) {
-      update.roundType = roundTypeIdFromLabel(roundTypeLabel);
-    }
-    return update;
-  }
-
-  if (/^RoundOver$/i.test(text) || /^Round was valid\.$/i.test(text) || /^Verified Round End$/i.test(text)) {
-    return { raw: text, finalize: true };
-  }
-
-  if (/^Lived in round\.$/i.test(text)) {
-    update.result = 1;
-    return update;
-  }
-
-  if (/^Died in round\.$/i.test(text) || /^You Died iN the Round$/i.test(text) || /^Player lost, not killer$/i.test(text)) {
-    update.result = 0;
-    return update;
-  }
+  const roundUpdate = TonRounds.parseLogLine(text);
+  if (roundUpdate) return roundUpdate;
 
   const roster = parseInstanceRosterLine(text);
   if (roster) {
@@ -327,6 +290,9 @@ function parseLogLine(line) {
   const json = parseLogJsonCandidate(text);
   if (json && typeof json === "object") {
     if (json.Note !== undefined || json.note !== undefined) update.note = json.note ?? json.Note;
+    if (json.RResult !== undefined || json.result !== undefined) update.result = json.result ?? json.RResult;
+    if (json.roundTypeLabel !== undefined || json.RType !== undefined) update.roundTypeLabel = json.roundTypeLabel ?? json.RType;
+    if (json.specialRoundName !== undefined) update.specialRoundName = json.specialRoundName;
     if (json.RT !== undefined || json.roundType !== undefined || json.rt !== undefined) update.roundType = json.roundType ?? json.RT ?? json.rt;
     if (json.MapID !== undefined || json.mapId !== undefined || json.mapID !== undefined) update.mapId = json.mapId ?? json.MapID ?? json.mapID;
     if (json.pc !== undefined || json.playerCount !== undefined) update.playerCount = json.playerCount ?? json.pc;
@@ -337,7 +303,7 @@ function parseLogLine(line) {
   }
 
   const patterns = [
-    { key: "note", re: /(Terror Name|Note|Name)\s*[:=]\s*(.+)$/i },
+    { key: "note", re: /^(Terror Name|Note|Name)\s*[:=]\s*(.+)$/i },
     { key: "roundType", re: /\b(?:RoundType|RT)\s*[:=]\s*(-?\d+)\b/i },
     { key: "mapId", re: /\b(?:MapID|MapId|mapid)\s*[:=]\s*(-?\d+)\b/i },
     { key: "playerCount", re: /\b(?:Player Count|PlayerCount|pc)\s*[:=]\s*(\d+)\b/i },
@@ -348,7 +314,7 @@ function parseLogLine(line) {
   for (const { key, re } of patterns) {
     const match = text.match(re);
     if (!match) continue;
-    const value = match[1];
+    const value = key === "note" ? match[2] : match[1];
     if (key === "terrorData") {
       const data = parseLogTerrorData(value);
       if (data.length) {
@@ -382,11 +348,6 @@ function processLogChunk(chunk, state = {}) {
     let lineChanged = false;
     const normalizedLine = normalizeLogMessage(line);
     const receivedAt = Date.now();
-    if (/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i.test(normalizedLine)) {
-      if (finalizeLiveRound()) {
-        lineChanged = true;
-      }
-    }
     const update = parseLogLine(normalizedLine);
     const didChange = update ? applyLiveOscRecord(update) : false;
     const rawEntry = {
@@ -501,7 +462,6 @@ function stopDebugLogWatcher() {
   manualMonitorLogFile = "";
   liveRoundHistory = [];
   liveRoundSequence = 0;
-  liveRoundFinalizedKey = "";
   monitorRawLines = [];
   monitorRosterCache = {
     path: "",
@@ -514,80 +474,11 @@ function stopDebugLogWatcher() {
 }
 
 function coerceNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  return TonRounds.numberOrNull(value);
 }
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-const roundTypeLabelToId = new Map([
-  ["classic", 1],
-  ["クラシック", 1],
-  ["fog", 2],
-  ["霧", 2],
-  ["punish", 3],
-  ["punished", 3],
-  ["パニッシュ", 3],
-  ["sabotage", 4],
-  ["サボタージュ", 4],
-  ["insanity", 5],
-  ["cracked", 5],
-  ["狂気", 5],
-  ["bloodbath", 6],
-  ["ブラッドバス", 6],
-  ["double trouble", 7],
-  ["lvl2", 7],
-  ["ダブルトラブル", 7],
-  ["lvl 2", 7],
-  ["ex", 8],
-  ["ex.", 8],
-  ["ghost", 9],
-  ["ゴースト", 9],
-  ["unbound", 10],
-  ["アンバウンド", 10],
-  ["randomizer", 11],
-  ["ランダマイザー", 11],
-  ["classic.exe", 12],
-  ["クラシック.exe", 12],
-  ["midnight", 50],
-  ["ミッドナイト", 50],
-  ["alternate", 51],
-  ["オルタネイト", 51],
-  ["fog alternate", 52],
-  ["霧オルタネイト", 52],
-  ["ghost alternate", 53],
-  ["ゴーストオルタネイト", 53],
-  ["mystic moon", 100],
-  ["ミスティックムーン", 100],
-  ["blood moon", 101],
-  ["ブラッドムーン", 101],
-  ["twilight moon", 102],
-  ["トワイライトムーン", 102],
-  ["solstice", 103],
-  ["ソルスティス", 103],
-  ["run", 104],
-  ["run!", 104],
-  ["走れ！", 104],
-  ["8 pages", 105],
-  ["8pages", 105],
-  ["８ページ", 105],
-  ["gigabyte", 106],
-  ["ギガバイト", 106],
-  ["rift monsters", 107]
-]);
-
-function roundTypeIdFromLabel(label) {
-  const normalized = normalizeText(label).replace(/\s+/g, " ");
-  return roundTypeLabelToId.get(normalized) ?? null;
-}
-
-function inferRoundType(rt, terrorCount) {
-  const roundType = coerceNumber(rt);
-  const count = coerceNumber(terrorCount);
-  if (roundType === 6 && count === 1) return 8;
-  return roundType;
 }
 
 function normalizePlayerName(name) {
@@ -846,7 +737,8 @@ function snapshotOscState() {
     monitorStatus: activeLogFile ? (manualMonitorLogFile ? "monitoring-manual" : "monitoring-auto") : "idle",
     note: oscLiveState.note,
     rawRoundType: oscLiveState.roundType,
-    roundType: inferRoundType(oscLiveState.roundType, oscLiveState.terrorCount ?? oscLiveState.terrorData.length),
+    roundType: liveRecord ? liveRecord.roundType : null,
+    roundPhase: oscLiveState.roundPhase,
     roundTypeLabel: oscLiveState.roundTypeLabel,
     mapId: oscLiveState.mapId,
     mapName: oscLiveState.mapName,
@@ -880,16 +772,22 @@ function cloneLiveRoundRecord(record) {
 }
 
 function buildLiveRoundRecord() {
+  if (oscLiveState.roundPhase === "waiting") return null;
   const terrorData = Array.isArray(oscLiveState.terrorData)
     ? oscLiveState.terrorData.map(item => ({ ...item }))
     : [];
-  const resolvedRoundType = inferRoundType(oscLiveState.roundType, terrorData.length || oscLiveState.terrorCount);
+  const identity = TonRounds.resolve({ ...oscLiveState, terrorData });
+  const resolvedRoundType = identity.roundType;
   return {
     recordKey: `live:${liveRoundSequence}`,
     sourceIndex: liveRoundSequence,
     sourceFileIndex: Number.MAX_SAFE_INTEGER,
     sourceFile: activeLogFile,
-    timestamp: new Date(oscLiveState.lastMessageAt || Date.now()).toISOString(),
+    timestamp: new Date(oscLiveState.startedAt || oscLiveState.lastMessageAt || Date.now()).toISOString(),
+    roundPhase: oscLiveState.roundPhase,
+    specialRoundName: identity.specialName,
+    terrorDataSource: oscLiveState.terrorDataSource,
+    roundIdentity: identity,
     note: oscLiveState.note,
     itemName: "",
     mapId: oscLiveState.mapId,
@@ -908,51 +806,33 @@ function buildLiveRoundRecord() {
         return Number.isFinite(id) ? String(id) : "";
       })
       .filter(Boolean),
-    terrorCount: Number.isFinite(oscLiveState.terrorCount) ? oscLiveState.terrorCount : terrorData.length,
-    expectedTerrorCount: expectedTerrorCount(resolvedRoundType),
-    terrorComposition: terrorComposition(resolvedRoundType, terrorData),
+    terrorCount: identity.terrorCount,
+    expectedTerrorCount: identity.expectedTerrorCount,
+    terrorComposition: identity.composition,
     result: oscLiveState.result,
     errors: "",
     content: "",
     contentLength: 0,
-    instanceRoster: [...oscLiveState.instanceRoster],
     instanceRosterLastEvent: oscLiveState.instanceRosterLastEvent,
     raw: { ...oscLiveState.raw }
   };
 }
 
-function roundFingerprint(record) {
-  if (!record) return "";
-  const terrorIds = Array.isArray(record.terrorData)
-    ? record.terrorData.map(item => Number(item && item.i)).filter(Number.isFinite).join(",")
-    : "";
-  return [
-    record.note || "",
-    record.mapId ?? "",
-    record.roundType ?? "",
-    record.roundTypeExtra || "",
-    record.playerCount ?? "",
-    terrorIds,
-    record.result ?? ""
-  ].join("|");
+function beginLiveRound() {
+  if (oscLiveState.roundPhase === "active") finalizeLiveRound();
+  liveRoundSequence += 1;
+  Object.assign(oscLiveState, {
+    roundPhase: "active", startedAt: Date.now(), note: "", specialRoundName: "",
+    roundType: null, roundTypeLabel: "", mapId: null, mapName: "",
+    playerCount: null, terrorCount: null, terrorIds: [], terrorData: [], terrorDataSource: "",
+    result: null, instanceAliveRoster: [...oscLiveState.instanceRoster], raw: {}
+  });
 }
 
 function finalizeLiveRound() {
+  if (oscLiveState.roundPhase !== "active") return false;
+  oscLiveState.roundPhase = "ended";
   const record = buildLiveRoundRecord();
-  const hasContent =
-    record.note ||
-    record.mapId !== null && record.mapId !== undefined ||
-    record.roundType !== null && record.roundType !== undefined ||
-    record.playerCount !== null && record.playerCount !== undefined ||
-    record.terrorData.length > 0 ||
-    record.result !== null && record.result !== undefined;
-  if (!hasContent) return false;
-  const key = roundFingerprint(record);
-  if (!key || key === liveRoundFinalizedKey) return false;
-  liveRoundFinalizedKey = key;
-  liveRoundSequence += 1;
-  record.recordKey = `live:${liveRoundSequence}`;
-  record.sourceIndex = liveRoundSequence;
   liveRoundHistory.push(cloneLiveRoundRecord(record));
   return true;
 }
@@ -960,6 +840,10 @@ function finalizeLiveRound() {
 function applyLiveOscRecord(partial = {}) {
   let changed = false;
   if (partial.reset) {
+    oscLiveState.roundPhase = "waiting";
+    oscLiveState.startedAt = 0;
+    oscLiveState.specialRoundName = "";
+    oscLiveState.terrorDataSource = "";
     oscLiveState.note = "";
     oscLiveState.roundType = null;
     oscLiveState.roundTypeLabel = "";
@@ -976,8 +860,22 @@ function applyLiveOscRecord(partial = {}) {
     oscLiveState.raw = {};
     liveRoundHistory = [];
     liveRoundSequence = 0;
-    liveRoundFinalizedKey = "";
     monitorRawLines = [];
+    changed = true;
+  }
+
+  if (partial.start || (oscLiveState.roundPhase === "waiting" &&
+      [partial.roundType, partial.roundTypeLabel, partial.mapId, partial.terrorData, partial.terrorIds]
+        .some(value => value !== undefined && value !== null && value !== ""))) {
+    beginLiveRound();
+    changed = true;
+  }
+  if (partial.specialRoundName !== undefined) {
+    oscLiveState.specialRoundName = String(partial.specialRoundName || "");
+    changed = true;
+  }
+  if (partial.terrorDataSource !== undefined) {
+    oscLiveState.terrorDataSource = partial.terrorDataSource;
     changed = true;
   }
 
@@ -1087,21 +985,29 @@ function applyLiveOscRecord(partial = {}) {
   }
 
   if (Array.isArray(partial.terrorData)) {
+    oscLiveState.terrorDataSource = partial.terrorDataSource || "";
     const next = partial.terrorData
       .filter(item => item && typeof item === "object")
       .map(item => ({
         ...item,
         i: coerceNumber(item.i),
         g: item.g !== undefined ? item.g : undefined
-      }));
+      })).filter(item => item.i !== null);
     if (JSON.stringify(oscLiveState.terrorData) !== JSON.stringify(next)) changed = true;
     oscLiveState.terrorData = next;
-  } else if (oscLiveState.terrorIds.length) {
+    oscLiveState.terrorIds = next.map(item => item.i).filter(id => id !== null);
+  } else if (Array.isArray(partial.terrorIds)) {
+    oscLiveState.terrorDataSource = "";
     const next = oscLiveState.terrorIds.map(id => ({ i: id }));
     if (JSON.stringify(oscLiveState.terrorData) !== JSON.stringify(next)) changed = true;
     oscLiveState.terrorData = next;
   }
 
+  // End markers can arrive before the result. Update the same saved round.
+  if (oscLiveState.roundPhase === "ended" && partial.result !== undefined) {
+    const saved = liveRoundHistory.find(record => record.recordKey === `live:${liveRoundSequence}`);
+    if (saved) saved.result = oscLiveState.result;
+  }
   oscLiveState.lastMessageAt = Date.now();
   return changed;
 }
@@ -1125,13 +1031,17 @@ function applyLiveOscMessage(message) {
         const parsed = JSON.parse(candidate);
         if (parsed && typeof parsed === "object") {
           applyLiveOscRecord({
-            note: parsed.note ?? parsed.Note ?? "",
+            start: parsed.start === true,
+            note: parsed.note ?? parsed.Note,
+            result: parsed.result ?? parsed.RResult,
+            specialRoundName: parsed.specialRoundName,
+            roundTypeLabel: parsed.roundTypeLabel ?? parsed.RType,
             roundType: parsed.roundType ?? parsed.RT ?? parsed.rt,
             mapId: parsed.mapId ?? parsed.MapID ?? parsed.mapID,
             playerCount: parsed.playerCount ?? parsed.pc,
             terrorCount: parsed.terrorCount ?? parsed.TDCount ?? parsed.tdCount,
             terrorIds: Array.isArray(parsed.terrorIds) ? parsed.terrorIds : undefined,
-            terrorData: Array.isArray(parsed.terrorData) ? parsed.terrorData : undefined
+            terrorData: Array.isArray(parsed.terrorData ?? parsed.TD) ? (parsed.terrorData ?? parsed.TD) : undefined
           });
           return true;
         }

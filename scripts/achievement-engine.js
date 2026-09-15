@@ -11,7 +11,7 @@
         roundTypes: [1],
         countAtLeast: 500
       },
-      source: "imported",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementClassic500",
         value: true
@@ -25,7 +25,7 @@
         roundTypes: [51],
         countAtLeast: 100
       },
-      source: "imported",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementAlternate100",
         value: true
@@ -39,7 +39,7 @@
         roundTypes: [1],
         noteEquals: "hungry home invader"
       },
-      source: "imported",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementClassicHungryHomeInvader",
         value: true
@@ -53,7 +53,7 @@
         roundTypes: [1],
         noteEquals: "atrached"
       },
-      source: "imported",
+      source: "both",
       osc: {
         address: "/avatar/parameters/AchievementClassicAtrached",
         value: true
@@ -131,19 +131,20 @@
   function getTerrorIds(record) {
     if (!record || !Array.isArray(record.terrorData)) return [];
     return record.terrorData
-      .map(item => Number(item && item.i))
+      .map(item => window.TonRounds.numberOrNull(item && item.i))
       .filter(Number.isFinite);
   }
 
   function matchesCriteria(record, criteria = {}) {
-    if (!record) return false;
+    if (!record || record.roundPhase === "active" || record.roundPhase === "waiting") return false;
 
     const note = normalize(record.note);
-    const roundType = Number(record.roundType);
-    const mapId = Number(record.mapId);
-    const playerCount = Number(record.playerCount);
+    const identity = window.TonRounds.resolve(record);
+    const roundType = identity.roundType;
+    const mapId = window.TonRounds.numberOrNull(record.mapId);
+    const playerCount = window.TonRounds.numberOrNull(record.playerCount);
     const terrorIds = getTerrorIds(record);
-    const terrorCount = Number(record.terrorCount);
+    const terrorCount = identity.terrorCount;
     const content = normalize(record.content);
     const instanceRoster = Array.isArray(record.instanceRoster)
       ? record.instanceRoster.map(normalize).filter(Boolean)
@@ -156,7 +157,7 @@
       return false;
     }
 
-    if (criteria.roundTypeNot !== undefined && roundType === Number(criteria.roundTypeNot)) {
+    if (criteria.roundTypeNot !== undefined && (roundType === null || roundType === Number(criteria.roundTypeNot))) {
       return false;
     }
 
@@ -188,23 +189,23 @@
       return false;
     }
 
-    if (criteria.playerCountMin !== undefined && !(playerCount >= Number(criteria.playerCountMin))) {
+    if (criteria.playerCountMin !== undefined && !(playerCount !== null && playerCount >= Number(criteria.playerCountMin))) {
       return false;
     }
 
-    if (criteria.playerCountMax !== undefined && !(playerCount <= Number(criteria.playerCountMax))) {
+    if (criteria.playerCountMax !== undefined && !(playerCount !== null && playerCount <= Number(criteria.playerCountMax))) {
       return false;
     }
 
-    if (criteria.terrorCountMin !== undefined && !(terrorCount >= Number(criteria.terrorCountMin))) {
+    if (criteria.terrorCountMin !== undefined && !(terrorCount !== null && terrorCount >= Number(criteria.terrorCountMin))) {
       return false;
     }
 
-    if (criteria.terrorCountMax !== undefined && !(terrorCount <= Number(criteria.terrorCountMax))) {
+    if (criteria.terrorCountMax !== undefined && !(terrorCount !== null && terrorCount <= Number(criteria.terrorCountMax))) {
       return false;
     }
 
-    if (criteria.result !== undefined && Number(record.result) !== Number(criteria.result)) {
+    if (criteria.result !== undefined && window.TonRounds.numberOrNull(record.result) !== Number(criteria.result)) {
       return false;
     }
 
@@ -250,7 +251,15 @@
 
   function countMatchingRecords(records, criteria) {
     if (!Array.isArray(records) || !records.length) return 0;
-    return records.reduce((count, record) => count + (matchesCriteria(record, criteria) ? 1 : 0), 0);
+    const seen = new Set();
+    return records.reduce((count, record) => {
+      if (!record) return count;
+      if (record.recordKey) {
+        if (seen.has(record.recordKey)) return count;
+        seen.add(record.recordKey);
+      }
+      return count + (matchesCriteria(record, criteria) ? 1 : 0);
+    }, 0);
   }
 
   function createTracker(options = {}) {
@@ -303,6 +312,7 @@
     }
 
     async function unlock(achievement, sendOsc) {
+      for (const id of loadUnlockedIds(storageKey)) unlocked.add(id);
       if (unlocked.has(achievement.id)) return false;
       unlocked.add(achievement.id);
       saveUnlockedIds(storageKey, unlocked);
@@ -334,6 +344,22 @@
     return {
       source,
       scan,
+      preview(record) {
+        if (!record || record.roundPhase !== "active") return [];
+        const ended = { ...record, roundPhase: "ended" };
+        return CATALOG
+          .filter(achievement => !achievement.source || achievement.source === source || achievement.source === "both")
+          .map(achievement => {
+            const { result, countAtLeast, ...conditions } = achievement.criteria || {};
+            const matches = matchesCriteria(ended, conditions);
+            const currentResult = window.TonRounds.numberOrNull(record.result);
+            return {
+              id: achievement.id, matches,
+              waitingForResult: matches && result !== undefined && currentResult === null,
+              resultMatches: result === undefined || currentResult === Number(result)
+            };
+          });
+      },
       progress(records) {
         return CATALOG
           .filter(achievement => !achievement.source || achievement.source === source || achievement.source === "both")

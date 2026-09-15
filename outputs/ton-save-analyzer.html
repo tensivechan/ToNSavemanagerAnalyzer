@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.23</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.24</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1394,6 +1394,7 @@
       <div class="metric"><b id="aLog">0</b><span>Log</span></div>
     </section>
 
+    <section class="achievement-card hidden" id="achievementCurrentRound" aria-live="polite"></section>
     <div class="achievement-grid" id="achievementsGrid"></div>
   </div>
 
@@ -1446,16 +1447,9 @@
     </div>
   </div>
 
+  <script src="../scripts/round-classifier.js"></script>
   <script src="../scripts/achievement-engine.js"></script>
   <script>
-    const knownTerrors = new Map([
-      [0, "The Meatball Man / Huggy"], [2, "Demented Spongebob"], [4, "HER"],
-      [9, "Toren's Shadow / MR MEGA"], [13, "Angry Munci / Specimen 5"],
-      [29, "Fusion Pilot / Karol_Corpse"], [37, "Something Wicked"],
-      [50, "Don't Touch Me"], [79, "Waterwraith"], [90, "Tricky"],
-      [96, "Those Olden Days"], [131, "Waldo"]
-    ]);
-
     const mapNames = new Map([
       [0, "Warehouse"],
       [1, "Sewers"],
@@ -1559,63 +1553,6 @@
       [107, "Rift Monsters"]
     ]);
 
-    const roundTypeLabelLookup = new Map([
-      ...[...roundTypes.entries()].map(([id, label]) => [String(label).trim().toLowerCase(), id]),
-      ["classic", 1],
-      ["クラシック", 1],
-      ["fog", 2],
-      ["霧", 2],
-      ["punish", 3],
-      ["punished", 3],
-      ["パニッシュ", 3],
-      ["sabotage", 4],
-      ["サボタージュ", 4],
-      ["insanity", 5],
-      ["cracked", 5],
-      ["狂気", 5],
-      ["bloodbath", 6],
-      ["ブラッドバス", 6],
-      ["double trouble", 7],
-      ["lvl2", 7],
-      ["ダブルトラブル", 7],
-      ["lvl 2", 7],
-      ["ex", 8],
-      ["ex.", 8],
-      ["ghost", 9],
-      ["ゴースト", 9],
-      ["unbound", 10],
-      ["アンバウンド", 10],
-      ["randomizer", 11],
-      ["ランダマイザー", 11],
-      ["classic.exe", 12],
-      ["クラシック.exe", 12],
-      ["midnight", 50],
-      ["ミッドナイト", 50],
-      ["alternate", 51],
-      ["オルタネイト", 51],
-      ["fog alternate", 52],
-      ["霧オルタネイト", 52],
-      ["ghost alternate", 53],
-      ["ゴーストオルタネイト", 53],
-      ["mystic moon", 100],
-      ["ミスティックムーン", 100],
-      ["blood moon", 101],
-      ["ブラッドムーン", 101],
-      ["twilight moon", 102],
-      ["トワイライトムーン", 102],
-      ["solstice", 103],
-      ["ソルスティス", 103],
-      ["run", 104],
-      ["run!", 104],
-      ["走れ！", 104],
-      ["8 pages", 105],
-      ["8pages", 105],
-      ["８ページ", 105],
-      ["gigabyte", 106],
-      ["ギガバイト", 106],
-      ["rift monsters", 107]
-    ]);
-
     const classicSpecialNames = new Set([
       "hungry home invader",
       "atrached",
@@ -1629,6 +1566,7 @@
       records: [],
       liveRecords: [],
       liveCurrentRecord: null,
+      liveSnapshotReceived: false,
       monitor: {
         monitoredFilePath: "",
         monitoredResolvedPath: "",
@@ -1716,6 +1654,7 @@
         achievementsRefreshBtn: document.getElementById("achievementsRefreshBtn"),
         achievementsCloseBtn: document.getElementById("achievementsCloseBtn"),
         achievementsGrid: document.getElementById("achievementsGrid"),
+        achievementCurrentRound: document.getElementById("achievementCurrentRound"),
       aUnlocked: document.getElementById("aUnlocked"),
       aTotal: document.getElementById("aTotal"),
       aPending: document.getElementById("aPending"),
@@ -1978,15 +1917,15 @@
 
       const finishCurrent = () => {
         if (!current) return;
-        current.terrorCount = Array.isArray(current.terrorData) ? current.terrorData.length : 0;
-        current.expectedTerrorCount = expectedTerrorCount(current.roundType);
-        current.terrorComposition = terrorComposition(current.roundType, current.terrorData);
+        if (!current.roundPhase && current.roundType === null && !current.terrorData.length) { current = null; return; }
+        const identity = window.TonRounds.resolve(current);
+        current.rawRoundType = current.roundType;
+        current.roundType = identity.roundType;
+        current.terrorCount = identity.terrorCount;
+        current.expectedTerrorCount = identity.expectedTerrorCount;
+        current.terrorComposition = identity.composition;
         current.terrorLabels = Array.isArray(current.terrorData)
-          ? current.terrorData.map(item => {
-              const id = Number(item && item.i);
-              const name = knownTerrors.get(id);
-              return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
-            }).filter(Boolean)
+          ? current.terrorData.map(formatTerrorEntry).filter(Boolean)
           : [];
         current.recordKey = `${sourceFileIndex}:${recordIndex}`;
         current.sourceIndex = recordIndex;
@@ -2029,33 +1968,17 @@
       for (const line of lines) {
         if (!line.trim()) continue;
         const timestamp = line.slice(0, 19).replace(/\./g, "-").replace(" ", "T");
-        const roundStart = line.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
-        if (roundStart) {
-          if (current) finishCurrent();
-          current = ensureCurrent(timestamp);
-          current.mapName = roundStart[1].trim();
-          current.mapId = Number(roundStart[2]);
-          current.roundTypeExtra = roundStart[3].trim();
-          current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
-          current.note = `${current.roundTypeExtra} @ ${current.mapName}`;
-          current.instanceAliveRoster = Array.isArray(current.instanceRoster) ? [...current.instanceRoster] : [];
-          current.raw.logLines.push(line);
-          continue;
-        }
-
-        const killers = line.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
-        if (killers) {
-          current = ensureCurrent(timestamp);
-          current.terrorData = killers[1]
-            .trim()
-            .split(/\s+/)
-            .map(value => Number(value))
-            .filter(Number.isFinite)
-            .map(i => ({ i }));
-          current.roundTypeExtra = killers[2].trim();
-          if (current.roundType === null) {
-            current.roundType = roundTypeIdFromLabel(current.roundTypeExtra);
+        const update = window.TonRounds.parseLogLine(line);
+        if (update) {
+          if (update.start && current) {
+            if (current.roundPhase === "active") current.roundPhase = "ended";
+            finishCurrent();
           }
+          if (!current && !update.start && update.roundType === undefined && !update.terrorData) continue;
+          current = ensureCurrent(timestamp);
+          Object.assign(current, update);
+          if (update.roundTypeLabel !== undefined) current.roundTypeExtra = update.roundTypeLabel;
+          if (update.start) current.instanceAliveRoster = [...current.instanceRoster];
           current.raw.logLines.push(line);
           continue;
         }
@@ -2111,26 +2034,6 @@
           continue;
         }
 
-        if (/^RoundOver$/i.test(line) || /^Round was valid\.$/i.test(line) || /^Verified Round End$/i.test(line)) {
-          current = ensureCurrent(timestamp);
-          current.raw.logLines.push(line);
-          continue;
-        }
-
-        if (/^Lived in round\.$/i.test(line)) {
-          current = ensureCurrent(timestamp);
-          current.result = 1;
-          current.raw.logLines.push(line);
-          continue;
-        }
-
-        if (/^Died in round\.$/i.test(line) || /^You Died iN the Round$/i.test(line) || /^Player lost, not killer$/i.test(line)) {
-          current = ensureCurrent(timestamp);
-          current.result = 0;
-          current.raw.logLines.push(line);
-          continue;
-        }
-
         if (current) {
           current.raw.logLines.push(line);
         }
@@ -2143,11 +2046,9 @@
     function normalizeRecord(row, index, sourceFile, sourceFileIndex) {
       const players = parsePlayers(row.Players);
       const td = Array.isArray(row.TD) ? row.TD : [];
-      const terrorNames = td.map(item => {
-        const id = Number(item && item.i);
-        const name = knownTerrors.get(id);
-        return Number.isFinite(id) ? `${id}${name ? `:${name}` : ""}` : "";
-      }).filter(Boolean);
+      const terrorLabels = td.map(formatTerrorEntry).filter(Boolean);
+      const identity = window.TonRounds.resolve({roundType: numberOrNull(row.RT), roundTypeExtra: row.RType,
+        note: value(row.Note), terrorData: td, specialRoundName: row.SpecialRoundName ?? row.specialRoundName});
       const content = typeof row.Content === "string" ? row.Content : "";
       const itemName = value(
         row.Item ??
@@ -2168,15 +2069,16 @@
         timestamp: value(row.Timestamp),
         mapId: numberOrNull(row.MapID),
         rawRoundType: numberOrNull(row.RT),
-        roundType: inferRoundType(numberOrNull(row.RT), td.length),
+        roundType: identity.roundType,
+        specialRoundName: identity.specialName,
         roundTypeExtra: row.RType ?? null,
         playerCount: numberOrNull(row.pc),
         players,
         terrorData: td,
-        terrorLabels: terrorNames,
+        terrorLabels,
         terrorCount: td.length,
-        expectedTerrorCount: expectedTerrorCount(inferRoundType(numberOrNull(row.RT), td.length)),
-        terrorComposition: terrorComposition(inferRoundType(numberOrNull(row.RT), td.length), td),
+        expectedTerrorCount: identity.expectedTerrorCount,
+        terrorComposition: identity.composition,
         result: numberOrNull(row.RResult),
         errors: row.RTerrors,
         content,
@@ -2198,13 +2100,11 @@
     }
 
     function numberOrNull(input) {
-      const n = Number(input);
-      return Number.isFinite(n) ? n : null;
+      return window.TonRounds.numberOrNull(input);
     }
 
     function roundTypeIdFromLabel(label) {
-      const key = String(label || "").trim().toLowerCase();
-      return roundTypeLabelLookup.get(key) ?? null;
+      return window.TonRounds.typeId(label);
     }
 
     function sortRecords(records) {
@@ -2575,6 +2475,7 @@
     }
 
     function syncLiveLogState(snapshot = {}) {
+      state.liveSnapshotReceived = true;
       liveLogState.note = value(snapshot.note);
       liveLogState.roundType = numberOrNull(snapshot.roundType);
       liveLogState.roundTypeLabel = value(snapshot.roundTypeLabel);
@@ -2602,12 +2503,7 @@
       liveLogState.lastAddress = value(snapshot.lastAddress);
       liveLogState.lastMessageAt = numberOrNull(snapshot.lastMessageAt) || Date.now();
       liveLogState.raw = snapshot.raw && typeof snapshot.raw === "object" ? snapshot.raw : {};
-      state.liveCurrentRecord = normalizeLiveRecord(
-        snapshot.liveRecord ||
-        (Array.isArray(snapshot.liveRecords) && snapshot.liveRecords.length
-          ? snapshot.liveRecords[snapshot.liveRecords.length - 1]
-          : null)
-      );
+      state.liveCurrentRecord = normalizeLiveRecord(snapshot.liveRecord);
       state.liveRecords = Array.isArray(snapshot.liveRecords)
         ? snapshot.liveRecords.map(normalizeLiveRecord).filter(Boolean)
         : [];
@@ -2670,6 +2566,9 @@
         sourceFileIndex: numberOrNull(record.sourceFileIndex) ?? Number.MAX_SAFE_INTEGER,
         sourceFile: value(record.sourceFile || ""),
         timestamp: value(record.timestamp || ""),
+        roundPhase: value(record.roundPhase || "active"),
+        specialRoundName: value(record.specialRoundName || ""),
+        terrorDataSource: value(record.terrorDataSource || ""),
         note: value(record.note || ""),
         itemName: value(record.itemName || ""),
         mapId: numberOrNull(record.mapId),
@@ -2683,8 +2582,8 @@
         instanceAliveRoster: Array.isArray(record.instanceAliveRoster) ? record.instanceAliveRoster.map(value) : [],
         instanceRosterLastEvent: value(record.instanceRosterLastEvent || ""),
         terrorData,
-        terrorLabels: Array.isArray(record.terrorLabels) ? record.terrorLabels.map(value) : [],
-        terrorCount: numberOrNull(record.terrorCount) ?? terrorData.length,
+        terrorLabels: terrorData.map(formatTerrorEntry).filter(Boolean),
+        terrorCount: record.terrorDataSource === "log-slots" ? null : (numberOrNull(record.terrorCount) ?? terrorData.length),
         expectedTerrorCount: numberOrNull(record.expectedTerrorCount),
         terrorComposition: value(record.terrorComposition || ""),
         result: numberOrNull(record.result),
@@ -2698,60 +2597,47 @@
     function deriveRoundRecordFromMonitorLines(lines = []) {
       let record = null;
       for (const entry of lines) {
-        const line = value(entry && entry.line || "").trim();
-        if (!line) continue;
-        const roundStart = line.match(/This round is taking place at (.+?) \((\d+)\) and the round type is (.+)$/i);
-        if (roundStart) {
-          record = {
-            note: `${roundStart[3].trim()} @ ${roundStart[1].trim()}`,
-            mapId: numberOrNull(roundStart[2]),
-            mapName: roundStart[1].trim(),
-            roundType: roundTypeIdFromLabel(roundStart[3].trim()),
-            roundTypeExtra: roundStart[3].trim(),
-            terrorData: [],
-            terrorCount: null,
-            result: null
-          };
-          continue;
-        }
-        const killers = line.match(/Killers have been set\s*-?\s*([0-9 ]+)\s*\/\/\s*Round type is (.+)$/i);
-        if (killers) {
-          record = record || {
-            note: "",
-            mapId: null,
-            mapName: "",
-            roundType: roundTypeIdFromLabel(killers[2].trim()),
-            roundTypeExtra: killers[2].trim(),
-            terrorData: [],
-            terrorCount: null,
-            result: null
-          };
-          const terrorData = killers[1]
-            .trim()
-            .split(/\s+/)
-            .map(value => numberOrNull(value))
-            .filter(value => value !== null)
-            .map(i => ({ i }));
-          record.terrorData = terrorData;
-          record.terrorCount = terrorData.length;
-          record.roundTypeExtra = killers[2].trim();
-          if (record.roundType === null || record.roundType === undefined) {
-            record.roundType = roundTypeIdFromLabel(record.roundTypeExtra);
-          }
-          continue;
-        }
-        if (/^Lived in round\.$/i.test(line)) {
-          record = record || {};
-          record.result = 1;
-          continue;
-        }
-        if (/^Died in round\.$/i.test(line) || /^You Died iN the Round$/i.test(line) || /^Player lost, not killer$/i.test(line)) {
-          record = record || {};
-          record.result = 0;
-          continue;
-        }
+        const update = window.TonRounds.parseLogLine(entry && entry.line);
+        if (!update) continue;
+        if (update.start) record = { note: "", terrorData: [], result: null, playerCount: null, roundPhase: "active" };
+        if (!record && (update.terrorData || update.roundType !== undefined)) record = { note: "", terrorData: [], result: null, playerCount: null, roundPhase: "active" };
+        if (!record) continue;
+        Object.assign(record, update);
+        if (update.roundTypeLabel !== undefined) record.roundTypeExtra = update.roundTypeLabel;
       }
       return record;
+    }
+
+    function getCurrentRoundRecord() {
+      if (state.liveSnapshotReceived) return state.liveCurrentRecord;
+      return deriveRoundRecordFromMonitorLines(state.monitor.rawLines || []);
+    }
+
+    function formatCurrentRoundType(record) {
+      if (!record) return "判定待ち";
+      const identity = window.TonRounds.resolve(record);
+      return identity.roundType === null ? identity.roundTypeName : `${identity.roundType}: ${identity.roundTypeName}`;
+    }
+
+    function formatCurrentRound(record) {
+      if (!record || record.roundPhase === "waiting") return "待機中・次のラウンド情報待ち";
+      const identity = window.TonRounds.resolve(record);
+      return [identity.phaseName, identity.roundTypeName, identity.specialName || identity.terrorName,
+        record.mapName ? `@ ${record.mapName}` : "", identity.composition,
+        identity.phase === "ended" ? "次のラウンド待ち" : ""].filter(Boolean).join(" / ");
+    }
+
+    function renderAchievementCurrentRound() {
+      const panel = els.achievementCurrentRound;
+      const visible = state.achievementSource === "live";
+      panel.classList.toggle("hidden", !visible);
+      if (!visible) return;
+      const record = getCurrentRoundRecord();
+      const identity = window.TonRounds.resolve(record || { roundPhase: "waiting" });
+      panel.innerHTML = `<h2>${record && identity.phase === "ended" ? "前のラウンド（終了）" : "現在のラウンド"}</h2>
+        <p>${escapeHtml(formatCurrentRound(record))}</p>
+        <p>特殊ラウンド: ${escapeHtml(identity.specialName || "未判定・情報待ち")}</p>
+        <p>Terror Name: ${escapeHtml(identity.terrorName || "情報待ち")}</p>`;
     }
 
     function getAchievementRecords() {
@@ -2761,34 +2647,16 @@
     }
 
     function renderLivePanel() {
-      const monitorFallback = deriveRoundRecordFromMonitorLines(state.monitor.rawLines || []);
-      const record = state.liveCurrentRecord || monitorFallback || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
-      const hasRound = Boolean(
-        record && (
-          record.note ||
-          record.mapId !== null ||
-          record.roundType !== null ||
-          record.playerCount !== null ||
-          (Array.isArray(record.terrorData) && record.terrorData.length) ||
-          record.result !== null
-        )
-      );
-      els.liveRoundText.textContent = hasRound
-        ? [
-            record.note || "(blank)",
-            record.mapName ? `@ ${record.mapName}` : "",
-            record.playerCount !== null ? `${record.playerCount}人` : "",
-            record.terrorCount !== null ? `${record.terrorCount}体` : ""
-          ].filter(Boolean).join(" / ")
-        : "待機中";
-      els.liveRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
-      els.liveMap.textContent = record && record.mapId !== null
+      const record = getCurrentRoundRecord();
+      els.liveRoundText.textContent = formatCurrentRound(record);
+      els.liveRoundType.textContent = formatCurrentRoundType(record);
+      els.liveMap.textContent = record && record.mapId !== null && record.mapId !== undefined
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
       els.liveTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
-        ? `TD ${formatTerrorMatches(record.terrorData)}`
+        ? `TD ${formatTerrorMatches(record.terrorData, record.note)}`
         : "TD --";
-      els.liveResult.textContent = record && record.result !== null
+      els.liveResult.textContent = record && record.result !== null && record.result !== undefined
         ? (record.result === 1 ? "Result Win" : "Result Lose")
         : "Result --";
     }
@@ -2854,18 +2722,7 @@
 
     function renderMonitorView() {
       if (!els.monitorFilePath) return;
-      const monitorFallback = deriveRoundRecordFromMonitorLines(state.monitor.rawLines || []);
-      const record = state.liveCurrentRecord || monitorFallback || (state.liveRecords.length ? state.liveRecords[state.liveRecords.length - 1] : null);
-      const hasRound = Boolean(
-        record && (
-          record.note ||
-          record.mapId !== null ||
-          record.roundType !== null ||
-          record.playerCount !== null ||
-          (Array.isArray(record.terrorData) && record.terrorData.length) ||
-          record.result !== null
-        )
-      );
+      const record = getCurrentRoundRecord();
       if (els.monitorPathInput && document.activeElement !== els.monitorPathInput && els.monitorPathInput.value !== state.monitor.monitoredRequestedPath) {
         els.monitorPathInput.value = state.monitor.monitoredRequestedPath;
       }
@@ -2885,30 +2742,23 @@
         ? new Date(state.monitor.lastMessageAt).toLocaleString("ja-JP", { hour12: false })
         : "--";
       els.monitorFileName.textContent = state.monitor.monitorFileName || (state.monitor.monitoredResolvedPath ? state.monitor.monitoredResolvedPath.split(/[\\/]/).pop() : "--");
-      els.monitorCurrentRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
-      els.monitorCurrentMap.textContent = record && record.mapId !== null
+      els.monitorCurrentRoundType.textContent = formatCurrentRoundType(record);
+      els.monitorCurrentMap.textContent = record && record.mapId !== null && record.mapId !== undefined
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "--";
       els.monitorFileSize.textContent = state.monitor.monitorFileSize ? formatNumber(state.monitor.monitorFileSize) : "--";
       els.monitorFileUpdatedAt.textContent = state.monitor.monitorFileUpdatedAt
         ? new Date(state.monitor.monitorFileUpdatedAt).toLocaleString("ja-JP", { hour12: false })
         : "--";
-      els.monitorRoundText.textContent = hasRound
-        ? [
-          record.note || "(blank)",
-          record.mapName ? `@ ${record.mapName}` : "",
-          record.playerCount !== null ? `${record.playerCount}人` : "",
-          record.terrorCount !== null ? `${record.terrorCount}体` : ""
-        ].filter(Boolean).join(" / ")
-        : "待機中";
-      els.monitorRoundType.textContent = record ? formatRoundType(record.roundType) : "--";
-      els.monitorMap.textContent = record && record.mapId !== null
+      els.monitorRoundText.textContent = formatCurrentRound(record);
+      els.monitorRoundType.textContent = formatCurrentRoundType(record);
+      els.monitorMap.textContent = record && record.mapId !== null && record.mapId !== undefined
         ? `${record.mapId}${record.mapName ? `: ${record.mapName}` : ""}`
         : "Map --";
       els.monitorTerrorIds.textContent = record && Array.isArray(record.terrorData) && record.terrorData.length
-        ? `TD ${formatTerrorMatches(record.terrorData)}`
+        ? `TD ${formatTerrorMatches(record.terrorData, record.note)}`
         : "TD --";
-      els.monitorResult.textContent = record && record.result !== null
+      els.monitorResult.textContent = record && record.result !== null && record.result !== undefined
         ? (record.result === 1 ? "Result Win" : "Result Lose")
         : "Result --";
       renderInstanceRoster();
@@ -2917,7 +2767,7 @@
 
     function readAchievementState() {
       const catalog = window.TonAchievements && Array.isArray(window.TonAchievements.catalog)
-        ? window.TonAchievements.catalog
+        ? window.TonAchievements.catalog.filter(item => !item.source || item.source === "both" || item.source === state.achievementSource)
         : [];
       const tracker = state.achievementSource === "live"
         ? window.TonAchievements && window.TonAchievements.live
@@ -2969,6 +2819,8 @@
       if (Array.isArray(criteria.instanceRosterExclude) && criteria.instanceRosterExclude.length) {
         parts.push(`Roster not=${criteria.instanceRosterExclude.join("/")}`);
       }
+      if (Array.isArray(criteria.terrorIdsAny) && criteria.terrorIdsAny.length) parts.push(`TerrorID any=${criteria.terrorIdsAny.join("/")}`);
+      if (Array.isArray(criteria.instanceAliveRosterAny) && criteria.instanceAliveRosterAny.length) parts.push(`Alive any=${criteria.instanceAliveRosterAny.join("/")}`);
       if (criteria.countAtLeast !== undefined) {
         parts.push(`回数>=${criteria.countAtLeast}`);
       }
@@ -2986,6 +2838,10 @@
         ? tracker.progress(getAchievementRecords())
         : [];
       const progressMap = new Map(progressList.map(item => [item.id, item]));
+      renderAchievementCurrentRound();
+      const preview = state.achievementSource === "live" && tracker && typeof tracker.preview === "function"
+        ? tracker.preview(getCurrentRoundRecord()) : [];
+      const previewMap = new Map(preview.map(item => [item.id, item]));
       const unlockedCount = catalog.filter(item => unlocked.has(item.id)).length;
       const total = catalog.length;
       const pending = Math.max(total - unlockedCount, 0);
@@ -3001,6 +2857,10 @@
 
       els.achievementsGrid.innerHTML = catalog.length ? catalog.map(item => {
         const unlockedNow = unlocked.has(item.id);
+        const current = previewMap.get(item.id);
+        const currentHint = !unlockedNow && current && current.matches
+          ? (current.waitingForResult ? "今回の条件一致・勝敗結果待ち" : current.resultMatches ? "今回の条件一致・ラウンド終了待ち" : "今回の勝敗条件は未達成")
+          : "";
         const progress = progressMap.get(item.id) || { count: 0, target: 1 };
         const percent = progress.target ? Math.min(100, Math.max(0, (progress.count / progress.target) * 100)) : 0;
         return `
@@ -3012,6 +2872,7 @@
             <h2>${escapeHtml(item.name)}</h2>
             <p>${escapeHtml(item.description || "")}</p>
             <p>${escapeHtml(describeAchievementCriteria(item.criteria))}</p>
+            ${currentHint ? `<p class="badge">${escapeHtml(currentHint)}</p>` : ""}
             <div class="achievement-progress">
               <div>${escapeHtml(formatNumber(progress.count))}/${escapeHtml(formatNumber(progress.target))}</div>
               <div class="achievement-progress-bar"><span style="width:${percent}%"></span></div>
@@ -3057,7 +2918,7 @@
           td(record.sourceFile || ""),
           td(formatRoundType(record.roundType)),
           td(formatMapLabel(record.mapId)),
-          td(formatTerrorMatches(record.terrorData), terrorCellClass(record)),
+          td(formatTerrorMatches(record.terrorData, record.note), terrorCellClass(record)),
           td(record.playerCount ?? record.players.length)
         ].join("");
         els.recordsBody.appendChild(tr);
@@ -3091,7 +2952,7 @@
           <div class="k">Map Name</div><div>${escapeHtml(formatMapLabel(record.mapId))}</div>
           <div class="k">RoundType</div><div>${escapeHtml(formatRoundType(record.roundType))}</div>
           <div class="k">RType</div><div>${escapeHtml(record.roundTypeExtra ?? "")}</div>
-          <div class="k">TerrorID / Name</div><div>${escapeHtml(formatTerrorMatches(record.terrorData))}</div>
+          <div class="k">TerrorID / Name</div><div>${escapeHtml(formatTerrorMatches(record.terrorData, record.note))}</div>
           <div class="k">内訳</div><div>${escapeHtml(record.terrorComposition || "")}</div>
           <div class="k">Player Count</div><div>${record.playerCount ?? ""}</div>
           <div class="k">RTerrors</div><div>${escapeHtml(record.errors ?? "")}</div>
@@ -3100,7 +2961,7 @@
         ${players}
         <h2>TD</h2>
         <div class="kv">
-          <div class="k">番号</div><div>${escapeHtml(formatTerrorMatches(record.terrorData))}</div>
+          <div class="k">番号</div><div>${escapeHtml(formatTerrorMatches(record.terrorData, record.note))}</div>
         </div>
       `;
     }
@@ -3125,31 +2986,16 @@
       return name ? `${mapId}: ${name}` : String(mapId);
     }
 
-    function inferRoundType(rt, terrorCount) {
-      if (rt === 6 && terrorCount === 1) return 8;
-      return rt;
-    }
 
-    function expectedTerrorCount(rt) {
-      if (rt === 8) return 1;
-      if (rt === 6 || rt === 50) return 3;
-      return null;
-    }
 
     function formatTerrors(record) {
-      const labels = formatTerrorMatches(record.terrorData);
+      const labels = formatTerrorMatches(record.terrorData, record.note);
       if (!record.expectedTerrorCount) return labels;
       const count = record.terrorCount;
       const status = count === record.expectedTerrorCount ? `${count}体` : `${count}/${record.expectedTerrorCount}体`;
       return labels ? `${status} - ${labels}` : status;
     }
 
-    function terrorComposition(rt, td) {
-      if (!Array.isArray(td) || rt !== 50) return "";
-      const alternate = td.filter(item => item && item.g !== undefined && item.g !== null).length;
-      const classic = td.length - alternate;
-      return `クラシック${classic}体 / オルタネイト${alternate}体`;
-    }
 
     function terrorCellClass(record) {
       if (record.expectedTerrorCount && record.terrorCount !== record.expectedTerrorCount) return "warn-cell";
@@ -3201,15 +3047,18 @@
 
     function formatTerrorEntry(item) {
       if (!item || typeof item !== "object") return "";
-      const id = Number(item.i);
-      if (!Number.isFinite(id)) return "";
-      const name = knownTerrors.get(id);
-      return name ? `${id}: ${name}` : String(id);
+      const id = numberOrNull(item.i);
+      if (id === null) return "";
+      return String(id);
     }
 
-    function formatTerrorMatches(tdArray) {
+    function formatTerrorMatches(tdArray, terrorName = "") {
       if (!Array.isArray(tdArray) || !tdArray.length) return "";
-      return tdArray.map(formatTerrorEntry).filter(Boolean).join(" / ");
+      const ids = tdArray.map(formatTerrorEntry).filter(Boolean).join(" / ");
+      if (!ids) return "";
+      // Terror Name describes the whole record; do not guess a name for each ID.
+      const name = value(terrorName);
+      return name.trim() ? `${ids}: ${name}` : ids;
     }
 
     function formatTime(input) {
@@ -3244,7 +3093,7 @@
         expectedTerrorCount: record.expectedTerrorCount,
         terrorComposition: record.terrorComposition,
         td: summarizeTd(record.terrorData),
-        tdMatches: formatTerrorMatches(record.terrorData),
+        tdMatches: formatTerrorMatches(record.terrorData, record.note),
         pc: record.playerCount,
         players: record.players.join("; "),
         rawRoundType: record.rawRoundType,
@@ -3270,7 +3119,7 @@
         expectedTerrorCount: record.expectedTerrorCount,
         terrorComposition: record.terrorComposition,
         rType: record.roundTypeExtra,
-        tdMatches: formatTerrorMatches(record.terrorData),
+        tdMatches: formatTerrorMatches(record.terrorData, record.note),
         pc: record.playerCount,
         players: record.players,
         td: record.terrorData,
