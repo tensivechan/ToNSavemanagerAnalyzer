@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+  <title>ラウンド状況</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    body { padding: 4px; color: #f0f2f5; font: 600 13px/1.4 "Segoe UI", "Yu Gothic UI", sans-serif; user-select: none; }
+    .panel { position: relative; height: 100%; padding: 8px 10px; border: 1px solid #2a374a; border-radius: 10px; background: #0e131b; -webkit-app-region: drag; cursor: grab; }
+    .line { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .round { padding-right: 16px; }
+    .map { color: #9fc6e6; }
+    .terror { color: #e7e9ee; }
+    .close { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #aeb9c9; font: 16px/20px sans-serif; cursor: pointer; opacity: 0; -webkit-app-region: no-drag; }
+    .panel:hover .close, .close:focus-visible { opacity: 1; }
+    .close:hover { background: #273346; color: white; }
+  </style>
+</head>
+<body>
+  <section class="panel" aria-label="ラウンド状況" aria-live="polite">
+    <div class="line round" id="roundType">ラウンド待機中</div>
+    <div class="line map" id="mapName"></div>
+    <div class="line terror" id="terrorName"></div>
+    <button class="close" id="closeOverlay" type="button" aria-label="最前面表示を閉じる" title="閉じる">×</button>
+  </section>
+  <script src="../scripts/round-classifier.js"></script>
+  <script src="../scripts/round-overlay.js"></script>
+</body>
+</html>

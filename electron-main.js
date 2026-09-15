@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow } = require("electron");
+﻿const { app, BrowserWindow, screen } = require("electron");
 const { ipcMain } = require("electron");
 const log = require("electron-log");
 const fs = require("node:fs");
@@ -13,6 +13,8 @@ let autoUpdater = null;
 let mainWindow = null;
 let achievementsWindow = null;
 let logMonitorWindow = null;
+let roundOverlayWindow = null;
+let roundOverlayBounds = null;
 let oscSocket = null;
 let debugLogPollTimer = null;
 let activeLogFile = "";
@@ -100,6 +102,10 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) roundOverlayWindow.close();
+  });
   return mainWindow;
 }
 
@@ -1218,6 +1224,36 @@ function createLogMonitorWindow() {
   return logMonitorWindow;
 }
 
+function createRoundOverlayWindow() {
+  if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) {
+    roundOverlayWindow.showInactive();
+    return roundOverlayWindow;
+  }
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = roundOverlayBounds ? roundOverlayBounds.width : 240;
+  const height = roundOverlayBounds ? roundOverlayBounds.height : 96;
+  roundOverlayWindow = new BrowserWindow({
+    width, height, minWidth: 180, minHeight: 82,
+    x: roundOverlayBounds ? roundOverlayBounds.x : area.x + area.width - width - 16,
+    y: roundOverlayBounds ? roundOverlayBounds.y : area.y + 16,
+    frame: false, transparent: true, backgroundColor: "#00000000",
+    alwaysOnTop: true, skipTaskbar: true, show: false, movable: true,
+    maximizable: false, minimizable: false, fullscreenable: false,
+    title: "ラウンド状況", icon: iconPath,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true,
+      preload: path.join(__dirname, "preload.js") }
+  });
+  const overlay = roundOverlayWindow;
+  overlay.setAlwaysOnTop(true, "screen-saver");
+  overlay.once("ready-to-show", () => {
+    if (!overlay.isDestroyed()) overlay.showInactive();
+  });
+  overlay.on("close", () => { roundOverlayBounds = overlay.getBounds(); });
+  overlay.on("closed", () => { roundOverlayWindow = null; });
+  overlay.loadFile(path.join(__dirname, "outputs", "round-overlay.html"));
+  return overlay;
+}
+
 function padOscBuffer(buffer) {
   const remainder = buffer.length % 4;
   if (remainder === 0) return buffer;
@@ -1460,6 +1496,11 @@ ipcMain.handle("ui:open-achievements", () => {
   return true;
 });
 
+ipcMain.handle("ui:open-round-overlay", () => {
+  createRoundOverlayWindow();
+  return true;
+});
+
 ipcMain.handle("ui:open-log-monitor", () => {
   createLogMonitorWindow();
   return true;
@@ -1467,6 +1508,7 @@ ipcMain.handle("ui:open-log-monitor", () => {
 
 app.whenReady().then(() => {
   createWindow();
+  createRoundOverlayWindow();
   startDebugLogWatcher();
   if (app.isPackaged) setupAutoUpdater();
   app.on("activate", () => {

@@ -180,4 +180,83 @@ function testRenderer() {
   console.log('PASS: renderer syntax, escaped current-round card, fallback and Terror Name behavior');
 }
 
-testAchievements().then(testRenderer).catch(error => { console.error(error); process.exitCode = 1; });
+async function testOverlay() {
+  const fields = Object.fromEntries(['roundType','mapName','terrorName','closeOverlay'].map(id => [id, {addEventListener(type, callback) { this[type] = callback; }}]));
+  let update;
+  let finishInitial;
+  let closeCount = 0;
+  let unsubscribeCount = 0;
+  const events = {};
+  const context = vm.createContext({
+    document: {getElementById: id => fields[id]},
+    window: {
+      TonRounds: rounds,
+      tonsave: {
+        onLogMessage(callback) { update = callback; return () => unsubscribeCount++; },
+        getLogState: () => new Promise(resolve => { finishInitial = resolve; })
+      },
+      close: () => closeCount++,
+      addEventListener: (name, callback) => { events[name] = callback; }
+    }
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'round-overlay.js'), 'utf8'), context);
+  const record = {roundPhase:'active',roundType:1,roundTypeExtra:'Classic',mapName:'Nexus',note:'The Painter: 続行希望なし',terrorData:[{i:15}]};
+  update({state:{liveRecord:record}});
+  assert.equal(fields.roundType.textContent, 'Classic/クラシック');
+  assert.equal(fields.mapName.textContent, 'Nexus');
+  assert.equal(fields.terrorName.textContent, 'The Painter');
+  finishInitial({liveRecord:null});
+  await Promise.resolve();
+  assert.equal(fields.terrorName.textContent, 'The Painter', 'A stale initial snapshot must not replace a newer event');
+  update({state:{liveRecord:{...record,note:'<img src=x>：継続希望あり',roundPhase:'ended'}}});
+  assert.equal(fields.terrorName.textContent, '<img src=x>', 'Names must be rendered as text');
+  assert.match(fields.roundType.textContent, /^終了/);
+  update({state:{liveRecord:{...record,note:'',terrorData:[{i:15},{i:0},{i:0}]}}});
+  assert.equal(fields.terrorName.textContent, 'TerrorID 15 / 0 / 0');
+  update({state:{liveRecord:null}});
+  assert.equal(fields.roundType.textContent, 'ラウンド待機中');
+  assert.equal(fields.mapName.textContent, '');
+  fields.closeOverlay.click(); events.beforeunload();
+  assert.equal(closeCount, 1); assert.equal(unsubscribeCount, 1);
+
+  const windows = [];
+  class FakeWindow {
+    constructor(options) { this.options = options; this.handlers = {}; this.bounds = {x:options.x,y:options.y,width:options.width,height:options.height}; windows.push(this); }
+    isDestroyed() { return Boolean(this.destroyed); }
+    showInactive() { this.shown = true; }
+    setAlwaysOnTop(flag, level) { this.top = {flag,level}; }
+    once(name, callback) { this.handlers[name] = callback; }
+    on(name, callback) { this.handlers[name] = callback; }
+    loadFile(file) { this.file = file; }
+    getBounds() { return this.bounds; }
+    close() { this.handlers.close?.(); this.destroyed = true; this.handlers.closed?.(); }
+  }
+  function mainFunction(name, next) {
+    return mainCode.slice(mainCode.indexOf(`function ${name}(`), mainCode.indexOf(`function ${next}(`));
+  }
+  const winContext = vm.createContext({BrowserWindow:FakeWindow,screen:{getPrimaryDisplay:()=>({workArea:{x:0,y:0,width:1920,height:1080}})},path,__dirname:root,iconPath:''});
+  vm.runInContext('let mainWindow=null,roundOverlayWindow=null,roundOverlayBounds=null;\n' + mainFunction('createWindow','broadcastOscMessage') + mainFunction('createRoundOverlayWindow','padOscBuffer'), winContext);
+  const overlay = vm.runInContext('createRoundOverlayWindow()',winContext);
+  assert.equal(overlay.options.alwaysOnTop,true);
+  assert.equal(overlay.options.movable,true);
+  assert.equal(overlay.options.transparent,true);
+  assert.equal(overlay.options.frame,false);
+  assert.equal(overlay.options.show,false);
+  assert.equal(overlay.options.skipTaskbar,true);
+  assert.equal(overlay.options.webPreferences.sandbox,true);
+  assert.equal(overlay.top.level,'screen-saver');
+  assert(overlay.file.endsWith('round-overlay.html'));
+  overlay.handlers['ready-to-show']();
+  assert.equal(overlay.shown,true);
+  assert.strictEqual(vm.runInContext('createRoundOverlayWindow()',winContext),overlay);
+  assert.equal(windows.length,1);
+  overlay.bounds={x:100,y:120,width:280,height:100}; overlay.close();
+  const reopened=vm.runInContext('createRoundOverlayWindow()',winContext);
+  assert.equal(reopened.options.x,100); assert.equal(reopened.options.width,280);
+  const main=vm.runInContext('createWindow()',winContext); main.close();
+  assert.equal(reopened.isDestroyed(),true,'Closing the main window must also close the overlay');
+  reopened.handlers['ready-to-show']();
+  console.log('PASS: overlay contents, updates, topmost settings, singleton, close/reopen and cleanup');
+}
+
+testAchievements().then(testRenderer).then(testOverlay).catch(error => { console.error(error); process.exitCode = 1; });

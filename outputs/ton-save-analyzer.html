@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.24</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.25</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1282,6 +1282,7 @@
           <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
           <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
           <button class="ghost" id="monitorBtn" type="button" title="監視先">👁</button>
+          <button class="ghost" id="roundOverlayBtn" type="button" title="ラウンド状況を最前面に表示">最前面表示</button>
           <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
         </div>
 
@@ -1640,6 +1641,7 @@
       themeBtn: document.getElementById("themeBtn"),
         rainbowBtn: document.getElementById("rainbowBtn"),
         monitorBtn: document.getElementById("monitorBtn"),
+        roundOverlayBtn: document.getElementById("roundOverlayBtn"),
         achievementsBtn: document.getElementById("achievementsBtn"),
       recordsBody: document.getElementById("recordsBody"),
       emptyState: document.getElementById("emptyState"),
@@ -1739,6 +1741,9 @@
       els.themeBtn.addEventListener("click", toggleTheme);
       els.rainbowBtn.addEventListener("click", toggleRainbowMode);
       els.monitorBtn.addEventListener("click", openLogMonitorWindow);
+      els.roundOverlayBtn.addEventListener("click", () => {
+        if (window.tonsave && window.tonsave.openRoundOverlay) window.tonsave.openRoundOverlay();
+      });
       els.achievementSourceImportedBtn.addEventListener("click", () => setAchievementSource("imported"));
       els.achievementSourceLiveBtn.addEventListener("click", () => setAchievementSource("live"));
       els.achievementResetBtn.addEventListener("click", resetAchievements);

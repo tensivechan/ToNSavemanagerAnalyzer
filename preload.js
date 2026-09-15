@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld("tonsave", {
   openAchievements() {
     return ipcRenderer.invoke("ui:open-achievements");
   },
+  openRoundOverlay() {
+    return ipcRenderer.invoke("ui:open-round-overlay");
+  },
   openLogMonitor() {
     return ipcRenderer.invoke("ui:open-log-monitor");
   },
