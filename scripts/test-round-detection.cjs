@@ -47,6 +47,12 @@ reset();
 assert.equal(snapshot().liveRecord, null, 'Empty monitor must not invent a round or a loss');
 feed('Device Name: Example', 'Name: Startup metadata');
 assert.equal(snapshot().liveRecord, null, 'Unrelated startup names must not begin a round');
+assert.equal(snapshot().heldItem, null);
+feed("[Behaviour] Pickup object: 'paleRegen' equipped = True, is AutoEquipType Pickup = True, last input method = Mouse, is AutoHold is enabled for this controller type = True");
+assert.equal(snapshot().heldItem, 'paleRegen');
+assert.equal(snapshot().liveRecord, null, 'Picking up an item must not invent a round');
+feed("[Behaviour] Drop object: 'paleRegen, was equipped = True' Throw on release, last input method = Mouse");
+assert.equal(snapshot().heldItem, null);
 feed(start('Classic'), 'Killers have been set - 15 0 0 // Round type is Classic');
 let current = snapshot().liveRecord;
 assert.equal(current.roundType, 1);
@@ -147,6 +153,8 @@ async function testAchievements() {
 
 function testRenderer() {
   const html = fs.readFileSync(path.join(root, 'outputs/ton-save-analyzer.html'), 'utf8');
+  assert.match(html, /setRoundOverlayVisibility\(!roundOverlayVisible\)/);
+  assert.match(html, /onRoundOverlayVisibility\(updateRoundOverlayButton\)/);
   const blocks = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   for (const match of blocks) {
     const src = match[1].match(/src="([^"]+)"/);
@@ -202,7 +210,7 @@ function testRenderer() {
 }
 
 async function testOverlay() {
-  const fields = Object.fromEntries(['roundType','mapName','terrorName','closeOverlay'].map(id => [id, {addEventListener(type, callback) { this[type] = callback; }}]));
+  const fields = Object.fromEntries(['roundType','mapName','terrorName','heldItem','closeOverlay'].map(id => [id, {addEventListener(type, callback) { this[type] = callback; }}]));
   let update;
   let finishInitial;
   let closeCount = 0;
@@ -223,11 +231,12 @@ async function testOverlay() {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'round-overlay.js'), 'utf8'), context);
   const record = {roundPhase:'active',roundType:1,roundTypeExtra:'Classic',mapName:'Nexus',note:'The Painter: 続行希望なし',terrorData:[{i:15}],terrorDataSource:'log-slots'};
-  update({state:{liveRecord:record}});
+  update({state:{liveRecord:record,heldItem:'paleRegen'}});
   assert.equal(fields.roundType.textContent, 'Classic/クラシック');
   assert.equal(fields.mapName.textContent, 'Nexus');
   assert.equal(fields.terrorName.textContent, 'The Painter');
-  finishInitial({liveRecord:null});
+  assert.equal(fields.heldItem.textContent, 'Item: paleRegen');
+  finishInitial({liveRecord:null,heldItem:null});
   await Promise.resolve();
   assert.equal(fields.terrorName.textContent, 'The Painter', 'A stale initial snapshot must not replace a newer event');
   update({state:{liveRecord:{...record,note:'<img src=x>：継続希望あり',roundPhase:'ended'}}});
@@ -239,17 +248,20 @@ async function testOverlay() {
   assert.equal(fields.terrorName.textContent, 'The Painter');
   update({state:{liveRecord:{...record,note:'',terrorData:[{i:9999},{i:0},{i:0}]}}});
   assert.equal(fields.terrorName.textContent, 'テラー名未取得');
-  update({state:{liveRecord:null}});
+  update({state:{liveRecord:null,heldItem:null}});
   assert.equal(fields.roundType.textContent, 'ラウンド待機中');
+  assert.equal(fields.heldItem.textContent, 'Item: Null');
   assert.equal(fields.mapName.textContent, '');
   fields.closeOverlay.click(); events.beforeunload();
   assert.equal(closeCount, 1); assert.equal(unsubscribeCount, 1);
 
   const windows = [];
   class FakeWindow {
-    constructor(options) { this.options = options; this.handlers = {}; this.bounds = {x:options.x,y:options.y,width:options.width,height:options.height}; windows.push(this); }
+    constructor(options) { this.options = options; this.handlers = {}; this.bounds = {x:options.x,y:options.y,width:options.width,height:options.height}; this.webContents={send:(channel,value)=>{this.sent={channel,value};}}; windows.push(this); }
     isDestroyed() { return Boolean(this.destroyed); }
+    isVisible() { return Boolean(this.shown) && !this.destroyed; }
     showInactive() { this.shown = true; }
+    hide() { this.shown = false; }
     setAlwaysOnTop(flag, level) { this.top = {flag,level}; }
     once(name, callback) { this.handlers[name] = callback; }
     on(name, callback) { this.handlers[name] = callback; }
@@ -257,17 +269,19 @@ async function testOverlay() {
     getBounds() { return this.bounds; }
     close() { this.handlers.close?.(); this.destroyed = true; this.handlers.closed?.(); }
   }
+  FakeWindow.getAllWindows=()=>windows.filter(win=>!win.destroyed);
   function mainFunction(name, next) {
     return mainCode.slice(mainCode.indexOf(`function ${name}(`), mainCode.indexOf(`function ${next}(`));
   }
   const winContext = vm.createContext({BrowserWindow:FakeWindow,screen:{getPrimaryDisplay:()=>({workArea:{x:0,y:0,width:1920,height:1080}})},path,__dirname:root,iconPath:''});
-  vm.runInContext('let mainWindow=null,roundOverlayWindow=null,roundOverlayBounds=null;\n' + mainFunction('createWindow','broadcastOscMessage') + mainFunction('createRoundOverlayWindow','padOscBuffer'), winContext);
+  vm.runInContext('let mainWindow=null,roundOverlayWindow=null,roundOverlayBounds=null;\n' + mainFunction('createWindow','broadcastOscMessage') + mainFunction('broadcastRoundOverlayVisibility','createRoundOverlayWindow') + mainFunction('createRoundOverlayWindow','padOscBuffer'), winContext);
   const overlay = vm.runInContext('createRoundOverlayWindow()',winContext);
   assert.equal(overlay.options.alwaysOnTop,true);
   assert.equal(overlay.options.movable,true);
   assert.equal(overlay.options.transparent,true);
   assert.equal(overlay.options.frame,false);
   assert.equal(overlay.options.show,false);
+  assert.equal(overlay.options.height,116);
   assert.equal(overlay.options.skipTaskbar,true);
   assert.equal(overlay.options.webPreferences.sandbox,true);
   assert.equal(overlay.top.level,'screen-saver');
@@ -276,6 +290,11 @@ async function testOverlay() {
   assert.equal(overlay.shown,true);
   assert.strictEqual(vm.runInContext('createRoundOverlayWindow()',winContext),overlay);
   assert.equal(windows.length,1);
+  assert.equal(vm.runInContext('setRoundOverlayVisibility(false)',winContext),false);
+  assert.equal(overlay.isVisible(),false);
+  assert.equal(vm.runInContext('setRoundOverlayVisibility(true)',winContext),true);
+  assert.equal(overlay.isVisible(),true);
+  assert.equal(windows.length,1,'Showing a hidden overlay must reuse the same window');
   overlay.bounds={x:100,y:120,width:280,height:100}; overlay.close();
   const reopened=vm.runInContext('createRoundOverlayWindow()',winContext);
   assert.equal(reopened.options.x,100); assert.equal(reopened.options.width,280);

@@ -2,7 +2,8 @@
   const fields = {
     round: document.getElementById("roundType"),
     map: document.getElementById("mapName"),
-    terror: document.getElementById("terrorName")
+    terror: document.getElementById("terrorName"),
+    item: document.getElementById("heldItem")
   };
 
   function cleanName(input) {
@@ -16,6 +17,7 @@
     let round = "ラウンド待機中";
     let map = "";
     let terror = "";
+    const item = `Item: ${String(snapshot.heldItem || "Null")}`;
     if (record && record.roundPhase !== "waiting") {
       const identity = window.TonRounds.resolve(record);
       const label = String(record.roundTypeLabel ?? record.roundTypeExtra ?? "").trim();
@@ -25,7 +27,7 @@
       terror = cleanName(record.note) || cleanName(identity.specialName) ||
         window.TonTerrorNameResolver.resolve(record) || "テラー名未取得";
     }
-    for (const [key, text] of Object.entries({round, map, terror})) {
+    for (const [key, text] of Object.entries({round, map, terror, item})) {
       fields[key].textContent = text;
       fields[key].title = text;
     }

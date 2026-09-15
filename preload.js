@@ -31,6 +31,18 @@ contextBridge.exposeInMainWorld("tonsave", {
   openRoundOverlay() {
     return ipcRenderer.invoke("ui:open-round-overlay");
   },
+  getRoundOverlayVisibility() {
+    return ipcRenderer.invoke("ui:get-round-overlay-visibility");
+  },
+  setRoundOverlayVisibility(visible) {
+    return ipcRenderer.invoke("ui:set-round-overlay-visibility", Boolean(visible));
+  },
+  onRoundOverlayVisibility(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, visible) => callback(Boolean(visible));
+    ipcRenderer.on("ui:round-overlay-visibility", handler);
+    return () => ipcRenderer.removeListener("ui:round-overlay-visibility", handler);
+  },
   openLogMonitor() {
     return ipcRenderer.invoke("ui:open-log-monitor");
   },

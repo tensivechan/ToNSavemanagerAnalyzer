@@ -14,6 +14,7 @@
     .round { padding-right: 16px; }
     .map { color: #9fc6e6; }
     .terror { color: #e7e9ee; }
+    .item { color: #b9dca8; }
     .close { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #aeb9c9; font: 16px/20px sans-serif; cursor: pointer; opacity: 0; -webkit-app-region: no-drag; }
     .panel:hover .close, .close:focus-visible { opacity: 1; }
     .close:hover { background: #273346; color: white; }
@@ -24,6 +25,7 @@
     <div class="line round" id="roundType">ラウンド待機中</div>
     <div class="line map" id="mapName"></div>
     <div class="line terror" id="terrorName"></div>
+    <div class="line item" id="heldItem">Item: Null</div>
     <button class="close" id="closeOverlay" type="button" aria-label="最前面表示を閉じる" title="閉じる">×</button>
   </section>
   <script src="../scripts/round-classifier.js"></script>

@@ -57,6 +57,7 @@ const oscLiveState = {
   terrorIds: [],
   terrorData: [],
   result: null,
+  heldItem: null,
   instanceRoster: [],
   instanceAliveRoster: [],
   instanceRosterLastEvent: "",
@@ -284,6 +285,11 @@ function parseLogLine(line) {
 
   const roundUpdate = TonRounds.parseLogLine(text);
   if (roundUpdate) return roundUpdate;
+
+  let itemMatch = text.match(/^\[Behaviour\]\s+Pickup object:\s*'([^']+)'\s+equipped\s*=\s*True\b/i);
+  if (itemMatch) return { heldItem: itemMatch[1].trim() || null };
+  itemMatch = text.match(/^\[Behaviour\]\s+Drop object:\s*'([^',]+)(?:,\s*was equipped\s*=\s*True)?'/i);
+  if (itemMatch) return { heldItem: null };
 
   const roster = parseInstanceRosterLine(text);
   if (roster) {
@@ -753,6 +759,7 @@ function snapshotOscState() {
     terrorIds: [...oscLiveState.terrorIds],
     terrorData: oscLiveState.terrorData.map(item => ({ ...item })),
     result: oscLiveState.result,
+    heldItem: oscLiveState.heldItem,
     instanceRoster: [...oscLiveState.instanceRoster],
     instanceAliveRoster: [...oscLiveState.instanceAliveRoster],
     instanceRosterLastEvent: oscLiveState.instanceRosterLastEvent,
@@ -795,7 +802,7 @@ function buildLiveRoundRecord() {
     terrorDataSource: oscLiveState.terrorDataSource,
     roundIdentity: identity,
     note: oscLiveState.note,
-    itemName: "",
+    itemName: oscLiveState.heldItem || "",
     mapId: oscLiveState.mapId,
     mapName: oscLiveState.mapName,
     rawRoundType: oscLiveState.roundType,
@@ -860,6 +867,7 @@ function applyLiveOscRecord(partial = {}) {
     oscLiveState.terrorIds = [];
     oscLiveState.terrorData = [];
     oscLiveState.result = null;
+    oscLiveState.heldItem = null;
     oscLiveState.instanceRoster = [];
     oscLiveState.instanceAliveRoster = [];
     oscLiveState.instanceRosterLastEvent = "";
@@ -924,6 +932,11 @@ function applyLiveOscRecord(partial = {}) {
     const next = partial.result === null ? null : Number(partial.result);
     if (oscLiveState.result !== next) changed = true;
     oscLiveState.result = Number.isFinite(next) ? next : null;
+  }
+  if (partial.heldItem !== undefined) {
+    const next = partial.heldItem === null ? null : String(partial.heldItem || "").trim() || null;
+    if (oscLiveState.heldItem !== next) changed = true;
+    oscLiveState.heldItem = next;
   }
 
   if (Array.isArray(partial.instanceRoster)) {
@@ -1224,16 +1237,25 @@ function createLogMonitorWindow() {
   return logMonitorWindow;
 }
 
+function broadcastRoundOverlayVisibility(visible) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win !== roundOverlayWindow && !win.isDestroyed()) {
+      win.webContents.send("ui:round-overlay-visibility", Boolean(visible));
+    }
+  }
+}
+
 function createRoundOverlayWindow() {
   if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) {
     roundOverlayWindow.showInactive();
+    broadcastRoundOverlayVisibility(true);
     return roundOverlayWindow;
   }
   const area = screen.getPrimaryDisplay().workArea;
   const width = roundOverlayBounds ? roundOverlayBounds.width : 240;
-  const height = roundOverlayBounds ? roundOverlayBounds.height : 96;
+  const height = roundOverlayBounds ? roundOverlayBounds.height : 116;
   roundOverlayWindow = new BrowserWindow({
-    width, height, minWidth: 180, minHeight: 82,
+    width, height, minWidth: 180, minHeight: 102,
     x: roundOverlayBounds ? roundOverlayBounds.x : area.x + area.width - width - 16,
     y: roundOverlayBounds ? roundOverlayBounds.y : area.y + 16,
     frame: false, transparent: true, backgroundColor: "#00000000",
@@ -1246,12 +1268,31 @@ function createRoundOverlayWindow() {
   const overlay = roundOverlayWindow;
   overlay.setAlwaysOnTop(true, "screen-saver");
   overlay.once("ready-to-show", () => {
-    if (!overlay.isDestroyed()) overlay.showInactive();
+    if (!overlay.isDestroyed()) {
+      overlay.showInactive();
+      broadcastRoundOverlayVisibility(true);
+    }
   });
   overlay.on("close", () => { roundOverlayBounds = overlay.getBounds(); });
-  overlay.on("closed", () => { roundOverlayWindow = null; });
+  overlay.on("closed", () => {
+    roundOverlayWindow = null;
+    broadcastRoundOverlayVisibility(false);
+  });
   overlay.loadFile(path.join(__dirname, "outputs", "round-overlay.html"));
   return overlay;
+}
+
+function setRoundOverlayVisibility(visible) {
+  if (visible) {
+    createRoundOverlayWindow();
+    return true;
+  }
+  if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) {
+    roundOverlayBounds = roundOverlayWindow.getBounds();
+    roundOverlayWindow.hide();
+  }
+  broadcastRoundOverlayVisibility(false);
+  return false;
 }
 
 function padOscBuffer(buffer) {
@@ -1499,6 +1540,14 @@ ipcMain.handle("ui:open-achievements", () => {
 ipcMain.handle("ui:open-round-overlay", () => {
   createRoundOverlayWindow();
   return true;
+});
+
+ipcMain.handle("ui:get-round-overlay-visibility", () => {
+  return Boolean(roundOverlayWindow && !roundOverlayWindow.isDestroyed() && roundOverlayWindow.isVisible());
+});
+
+ipcMain.handle("ui:set-round-overlay-visibility", (_event, visible) => {
+  return setRoundOverlayVisibility(Boolean(visible));
 });
 
 ipcMain.handle("ui:open-log-monitor", () => {

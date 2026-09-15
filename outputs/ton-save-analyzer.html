@@ -1272,7 +1272,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.26</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.27</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1282,7 +1282,7 @@
           <button class="ghost" id="themeBtn" type="button" title="ダークモード">☾</button>
           <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
           <button class="ghost" id="monitorBtn" type="button" title="監視先">👁</button>
-          <button class="ghost" id="roundOverlayBtn" type="button" title="ラウンド状況を最前面に表示">最前面表示</button>
+          <button class="ghost" id="roundOverlayBtn" type="button" title="最前面表示を非表示" aria-pressed="true">最前面表示を非表示</button>
           <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
         </div>
 
@@ -1624,6 +1624,15 @@
 
     const isAchievementsView = document.documentElement.dataset.view === "achievements";
     const isMonitorView = document.documentElement.dataset.view === "monitor";
+    let roundOverlayVisible = true;
+
+    function updateRoundOverlayButton(visible) {
+      roundOverlayVisible = Boolean(visible);
+      const action = roundOverlayVisible ? "非表示" : "表示";
+      els.roundOverlayBtn.textContent = `最前面表示を${action}`;
+      els.roundOverlayBtn.title = `最前面表示を${action}`;
+      els.roundOverlayBtn.setAttribute("aria-pressed", String(roundOverlayVisible));
+    }
 
     const els = {
       fileInput: document.getElementById("fileInput"),
@@ -1741,9 +1750,16 @@
       els.themeBtn.addEventListener("click", toggleTheme);
       els.rainbowBtn.addEventListener("click", toggleRainbowMode);
       els.monitorBtn.addEventListener("click", openLogMonitorWindow);
-      els.roundOverlayBtn.addEventListener("click", () => {
-        if (window.tonsave && window.tonsave.openRoundOverlay) window.tonsave.openRoundOverlay();
+      els.roundOverlayBtn.addEventListener("click", async () => {
+        if (!window.tonsave || !window.tonsave.setRoundOverlayVisibility) return;
+        updateRoundOverlayButton(await window.tonsave.setRoundOverlayVisibility(!roundOverlayVisible));
       });
+      if (window.tonsave && window.tonsave.onRoundOverlayVisibility) {
+        window.tonsave.onRoundOverlayVisibility(updateRoundOverlayButton);
+      }
+      if (window.tonsave && window.tonsave.getRoundOverlayVisibility) {
+        window.tonsave.getRoundOverlayVisibility().then(updateRoundOverlayButton).catch(() => {});
+      }
       els.achievementSourceImportedBtn.addEventListener("click", () => setAchievementSource("imported"));
       els.achievementSourceLiveBtn.addEventListener("click", () => setAchievementSource("live"));
       els.achievementResetBtn.addEventListener("click", resetAchievements);
