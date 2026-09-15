@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("tonsave", {
   setRoundOverlayVisibility(visible) {
     return ipcRenderer.invoke("ui:set-round-overlay-visibility", Boolean(visible));
   },
+  setRoundOverlayHeight(height) {
+    return ipcRenderer.invoke("ui:set-round-overlay-height", Number(height));
+  },
   onRoundOverlayVisibility(callback) {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, visible) => callback(Boolean(visible));

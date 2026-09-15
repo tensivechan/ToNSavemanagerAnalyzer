@@ -4,105 +4,36 @@
 
   const CATALOG = [
     {
-      id: "classic_500",
-      name: "クラシックを500回やる",
-      description: "クラシックを500回クリアしたら解除",
-      criteria: {
-        roundTypes: [1],
-        countAtLeast: 500
-      },
+      id: "azrael_survivor_normal",
+      name: "Azrael Survivor I",
+      description: "通常のオルタネイトでAzraelから生存する",
+      criteria: { roundTypes: [51], terrorKeysAny: ["1:34"], result: 1 },
       source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementClassic500",
-        value: true
-      }
+      osc: { address: "/avatar/parameters/AchievementAzraelNormal", value: true }
     },
     {
-      id: "alternate_100",
-      name: "オルタネイトを100回やる",
-      description: "オルタネイトを100回クリアしたら解除",
-      criteria: {
-        roundTypes: [51],
-        countAtLeast: 100
-      },
+      id: "azrael_survivor_fog",
+      name: "Azrael Survivor II",
+      description: "霧のオルタネイトでAzraelから生存する",
+      criteria: { roundTypes: [52], terrorKeysAny: ["1:34"], result: 1 },
       source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementAlternate100",
-        value: true
-      }
+      osc: { address: "/avatar/parameters/AchievementAzraelFog", value: true }
     },
     {
-      id: "classic_hungry_home_invader",
-      name: "Hungry Home Invader",
-      description: "クラシックで Hungry Home Invader を達成",
-      criteria: {
-        roundTypes: [1],
-        noteEquals: "hungry home invader"
-      },
+      id: "azrael_survivor_ghost",
+      name: "Azrael Survivor III",
+      description: "ゴーストのオルタネイトでAzraelから生存する",
+      criteria: { roundTypes: [53], terrorKeysAny: ["1:34"], result: 1 },
       source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementClassicHungryHomeInvader",
-        value: true
-      }
+      osc: { address: "/avatar/parameters/AchievementAzraelGhost", value: true }
     },
     {
-      id: "classic_atrached",
-      name: "Atrached",
-      description: "クラシックで Atrached を達成",
-      criteria: {
-        roundTypes: [1],
-        noteEquals: "atrached"
-      },
+      id: "azrael_survivor_midnight",
+      name: "Azrael Survivor IV",
+      description: "ミッドナイトでAzraelを含むラウンドから生存する",
+      criteria: { roundTypes: [50], terrorKeysAny: ["1:34"], result: 1 },
       source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementClassicAtrached",
-        value: true
-      }
-    },
-    {
-      id: "special_wild_yet_bloodthirsty_creature",
-      name: "Wild Yet Bloodthirsty Creature",
-      description: "特殊ラウンドで Wild Yet Bloodthirsty Creature を達成",
-      criteria: {
-        noteEquals: "wild yet bloodthirsty creature",
-        roundTypeNot: 1
-      },
-      source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementSpecialWildYetBloodthirstyCreature",
-        value: true
-      }
-    },
-    {
-      id: "celestial_seraphim",
-      name: "Celestial Seraphim",
-      description: "てんしぶさんがいるインスタンスでHeavenのUnboundを生存クリアする",
-      criteria: {
-        mapId: 49,
-        roundTypes: [10],
-        result: 1,
-        instanceRosterAny: ["てんしぶさん"],
-        instanceAliveRosterAny: ["Angels"]
-      },
-      source: "both",
-      osc: {
-        address: "/avatar/parameters/AchievementCelestialSeraphim",
-        value: true
-      }
-    },
-    {
-      id: "midnight_fusion_pilot_win",
-      name: "MIDNIGHTでFusionPilotに勝利",
-      description: "MIDNIGHTでFusion Pilotを含むラウンドに勝利したら解除",
-      criteria: {
-        roundTypes: [50],
-        terrorIdsAny: [29],
-        result: 1
-      },
-      osc: {
-        address: "/avatar/parameters/AchievementMidnightFusionPilotWin",
-        value: true
-      }
+      osc: { address: "/avatar/parameters/AchievementAzraelMidnight", value: true }
     }
   ];
 
@@ -135,6 +66,21 @@
       .filter(Number.isFinite);
   }
 
+  function getTerrorKeys(record, roundType) {
+    if (!record || !Array.isArray(record.terrorData)) return [];
+    return record.terrorData.map((item, index) => {
+      const id = window.TonRounds.numberOrNull(item && item.i);
+      if (id === null) return "";
+      let group = window.TonRounds.numberOrNull(item && item.g);
+      if (group === null) {
+        if ([51, 52, 53].includes(roundType)) group = 1;
+        else if (roundType === 50 && index === 2) group = 1;
+        else group = 0;
+      }
+      return `${group}:${id}`;
+    }).filter(Boolean);
+  }
+
   function matchesCriteria(record, criteria = {}) {
     if (!record || record.roundPhase === "active" || record.roundPhase === "waiting") return false;
 
@@ -144,6 +90,7 @@
     const mapId = window.TonRounds.numberOrNull(record.mapId);
     const playerCount = window.TonRounds.numberOrNull(record.playerCount);
     const terrorIds = getTerrorIds(record);
+    const terrorKeys = getTerrorKeys(record, roundType);
     const terrorCount = identity.terrorCount;
     const content = normalize(record.content);
     const instanceRoster = Array.isArray(record.instanceRoster)
@@ -217,6 +164,10 @@
       return false;
     }
 
+    if (Array.isArray(criteria.terrorKeysAny) && criteria.terrorKeysAny.length && !criteria.terrorKeysAny.some(key => terrorKeys.includes(String(key)))) {
+      return false;
+    }
+
     if (Array.isArray(criteria.instanceRosterAny) && criteria.instanceRosterAny.length && !criteria.instanceRosterAny.some(name => instanceRoster.includes(normalize(name)))) {
       return false;
     }
@@ -265,7 +216,12 @@
   function createTracker(options = {}) {
     const source = options.source || "imported";
     const storageKey = options.storageKey || DEFAULT_IMPORTED_KEY;
-    const unlocked = new Set(loadUnlockedIds(storageKey));
+    const allowedIds = new Set(CATALOG
+      .filter(achievement => !achievement.source || achievement.source === source || achievement.source === "both")
+      .map(achievement => achievement.id));
+    const storedIds = loadUnlockedIds(storageKey);
+    const unlocked = new Set(storedIds.filter(id => allowedIds.has(id)));
+    if (unlocked.size !== storedIds.length) saveUnlockedIds(storageKey, unlocked);
 
     function getAchievementProgress(achievement, records) {
       const target = getAchievementTarget(achievement);

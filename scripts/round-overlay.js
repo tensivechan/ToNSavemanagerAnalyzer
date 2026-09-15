@@ -17,6 +17,7 @@
     let round = "ラウンド待機中";
     let map = "";
     let terror = "";
+    let terrorLines = 1;
     const item = `Item: ${String(snapshot.heldItem || "Null")}`;
     if (record && record.roundPhase !== "waiting") {
       const identity = window.TonRounds.resolve(record);
@@ -24,12 +25,17 @@
       const bilingual = /[a-z]/i.test(label) && window.TonRounds.typeId(label) === identity.roundType && label !== identity.roundTypeName;
       round = bilingual ? `${label}/${identity.roundTypeName}` : identity.roundTypeName;
       map = String(record.mapName || (record.mapId !== null && record.mapId !== undefined ? `Map ${record.mapId}` : "マップ情報待ち"));
-      terror = cleanName(record.note) || cleanName(identity.specialName) ||
-        window.TonTerrorNameResolver.resolve(record) || "テラー名未取得";
+      const directName = cleanName(record.note) || cleanName(identity.specialName);
+      const names = directName ? [directName] : window.TonTerrorNameResolver.resolveAll(record);
+      terror = (names.length ? names : ["テラー名未取得"]).join("\n");
+      terrorLines = Math.max(1, names.length);
     }
     for (const [key, text] of Object.entries({round, map, terror, item})) {
       fields[key].textContent = text;
       fields[key].title = text;
+    }
+    if (window.tonsave && window.tonsave.setRoundOverlayHeight) {
+      window.tonsave.setRoundOverlayHeight(116 + (terrorLines - 1) * 18);
     }
   }
 

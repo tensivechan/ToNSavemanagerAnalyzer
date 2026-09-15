@@ -23,38 +23,41 @@
     return level > 1 ? `${name} (LVL ${level})` : name;
   }
 
-  function resolve(record = {}) {
+  function resolveAll(record = {}) {
     const identity = rounds.resolve(record);
     const type = identity.roundType;
     const td = Array.isArray(record.terrorData) ? record.terrorData : [];
     const slots = record.terrorDataSource === "log-slots";
     if (!slots) {
-      return td.map(item => entryName(item, rounds.numberOrNull(item?.g) ?? 0, type, rounds.numberOrNull(item?.l) ?? 1)).join(" & ");
+      return td.map(item => entryName(item, rounds.numberOrNull(item?.g) ?? 0, type, rounds.numberOrNull(item?.l) ?? 1));
     }
-    if (!td.length) return "";
-    if ([1,2,3,4,5,9,11,12].includes(type)) return entryName(td[0], 0, type);
-    if ([51,52,53].includes(type)) return entryName(td[0], 1, type);
-    if (type === 10) return entryName(td[0], 3, type);
-    if (type >= 100 && type <= 103) return entryName({i:type-100}, 4, type);
-    if (type === 104) return entryName({i:0}, 5, type);
-    if (type === 105) return entryName(td[0], 2, type);
-    if (type === 106) return entryName({i:1}, 6, type);
-    if (type === 107) return entryName({i:0}, 6, type);
+    if (!td.length) return [];
+    if ([1,2,3,4,5,9,11,12].includes(type)) return [entryName(td[0], 0, type)];
+    if ([51,52,53].includes(type)) return [entryName(td[0], 1, type)];
+    if (type === 10) return [entryName(td[0], 3, type)];
+    if (type >= 100 && type <= 103) return [entryName({i:type-100}, 4, type)];
+    if (type === 104) return [entryName({i:0}, 5, type)];
+    if (type === 105) return [entryName(td[0], 2, type)];
+    if (type === 106) return [entryName({i:1}, 6, type)];
+    if (type === 107) return [entryName({i:0}, 6, type)];
     if (type === 50) {
-      if (td.length < 3) return "テラー名未取得";
-      if (Number(td[2].i) === 19) return entryName(td[2], 1, type);
+      if (td.length < 3) return ["テラー名未取得"];
+      if (Number(td[2].i) === 19) return [entryName(td[2], 1, type)];
       const duplicate = Number(td[0].i) === Number(td[1].i);
       const first = duplicate ? [entryName(td[1], 0, type, 2)] : [entryName(td[0], 0, type), entryName(td[1], 0, type)];
-      return [...first, entryName(td[2], 1, type)].join(" & ");
+      return [...first, entryName(td[2], 1, type)];
     }
     if ([6,7,8].includes(type)) {
       const counts = new Map();
       for (const item of td) counts.set(item.i, (counts.get(item.i) || 0) + 1);
       const level = 1 + td.length - counts.size;
       return [...counts].sort((a,b) => b[1]-a[1]).map(([id], index) =>
-        entryName({i:id}, 0, type, index === 0 || type === 7 ? level : 1)).join(" & ");
+        entryName({i:id}, 0, type, index === 0 || type === 7 ? level : 1));
     }
-    return "テラー名未取得";
+    return ["テラー名未取得"];
   }
-  return Object.freeze({resolve});
+  function resolve(record = {}) {
+    return resolveAll(record).join(" & ");
+  }
+  return Object.freeze({resolve, resolveAll});
 });

@@ -1550,6 +1550,17 @@ ipcMain.handle("ui:set-round-overlay-visibility", (_event, visible) => {
   return setRoundOverlayVisibility(Boolean(visible));
 });
 
+ipcMain.handle("ui:set-round-overlay-height", (event, height) => {
+  if (!roundOverlayWindow || roundOverlayWindow.isDestroyed() || event.sender !== roundOverlayWindow.webContents) return false;
+  const nextHeight = Math.max(116, Math.min(170, Math.round(Number(height) || 116)));
+  const bounds = roundOverlayWindow.getBounds();
+  const area = screen.getDisplayMatching(bounds).workArea;
+  const y = Math.min(bounds.y, area.y + area.height - nextHeight);
+  roundOverlayWindow.setBounds({ ...bounds, y, height: nextHeight });
+  roundOverlayBounds = roundOverlayWindow.getBounds();
+  return true;
+});
+
 ipcMain.handle("ui:open-log-monitor", () => {
   createLogMonitorWindow();
   return true;

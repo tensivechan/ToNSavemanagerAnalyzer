@@ -107,10 +107,14 @@ function createAchievementContext(storage = new Map()) {
 async function testAchievements() {
   const { achievements, storage } = createAchievementContext();
   const live = achievements.live;
+  assert.deepEqual(Array.from(achievements.catalog, item => item.id), [
+    'azrael_survivor_normal', 'azrael_survivor_fog',
+    'azrael_survivor_ghost', 'azrael_survivor_midnight'
+  ]);
   let sent = 0;
   const send = async () => { sent++; };
-  const active = { recordKey: 'live:1', roundPhase: 'active', roundType: 50, terrorData: [{ i: 29 }], result: null };
-  const preview = live.preview(active).find(item => item.id === 'midnight_fusion_pilot_win');
+  const active = { recordKey: 'live:1', roundPhase: 'active', roundType: 51, terrorDataSource:'log-slots', terrorData: [{ i: 34 }], result: null };
+  const preview = live.preview(active).find(item => item.id === 'azrael_survivor_normal');
   assert.equal(preview.matches, true);
   assert.equal(preview.waitingForResult, true);
   assert.equal((await live.scan([active], send)).length, 0);
@@ -123,15 +127,33 @@ async function testAchievements() {
   assert.equal((await live.scan([ended], send)).length, 0);
   const secondWindow = createAchievementContext(storage).achievements.live;
   assert.equal((await secondWindow.scan([ended], send)).length, 0, 'Existing unlock state must survive another window');
-  const unknown = { recordKey: 'live:2', roundPhase: 'ended', note: 'Wild Yet Bloodthirsty Creature', roundType: null };
-  assert.equal((await live.scan([unknown], send)).length, 0, 'Unknown type must not satisfy a non-Classic condition');
-  const classics = [{recordKey:'a',roundPhase:'ended',roundType:1}, {recordKey:'b',roundPhase:'ended',roundType:1}];
-  const progress = live.progress([...classics, classics[0], {recordKey:'c',roundPhase:'active',roundType:1}]);
-  assert.equal(progress.find(item => item.id === 'classic_500').count, 2);
+
+  const imported = createAchievementContext().achievements.imported;
+  const savedRecords = [
+    {recordKey:'save:normal',roundType:51,terrorData:[{i:34,g:1}],result:1},
+    {recordKey:'save:fog',roundType:52,terrorData:[{i:34,g:1}],result:1},
+    {recordKey:'save:ghost',roundType:53,terrorData:[{i:34,g:1}],result:1},
+    {recordKey:'save:midnight',roundType:50,terrorData:[{i:23,g:0},{i:0,g:0},{i:34,g:1}],result:1}
+  ];
+  assert.equal((await imported.scan(savedRecords, send)).length, 4, 'Readable save records must unlock every matching Azrael tier');
+  assert.equal(imported.progress(savedRecords).every(item => item.complete), true);
+  const wrongGroup = {recordKey:'wrong-group',roundPhase:'ended',roundType:50,terrorData:[{i:34},{i:0},{i:0}],result:1};
+  assert.equal((await createAchievementContext().achievements.live.scan([wrongGroup], send)).length, 0, 'Classic ID 34 must not be mistaken for Azrael');
+  const loss = {...ended,recordKey:'loss',result:0};
+  assert.equal((await createAchievementContext().achievements.live.scan([loss], send)).length, 0, 'A loss must not unlock a survival tier');
+
+  const legacyStorage = new Map([
+    ['tonsave-achievements-imported-unlocked', JSON.stringify(['classic_500','celestial_seraphim'])],
+    ['tonsave-achievements-live-unlocked', JSON.stringify(['midnight_fusion_pilot_win'])]
+  ]);
+  const migrated = createAchievementContext(legacyStorage).achievements;
+  assert.deepEqual(Array.from(migrated.imported.unlocked()), []);
+  assert.deepEqual(Array.from(migrated.live.unlocked()), []);
+
   for (const endFirst of [false, true]) {
     reset();
     const wonAchievements = createAchievementContext().achievements.live;
-    feed(start('Midnight'), 'Killers have been set - 29 2 0 // Round type is Midnight');
+    feed(start('Alternate'), 'Killers have been set - 34 0 0 // Round type is Alternate');
     assert.equal((await wonAchievements.scan([snapshot().liveRecord], send)).length, 0);
     if (endFirst) feed('RoundOver');
     feed('2026.09.16 12:00:00 Log - Round Won');
@@ -148,7 +170,7 @@ async function testAchievements() {
     assert.equal(snapshot().liveRecord.result, null, 'A win must not carry into the next round');
   }
   assert.equal(rounds.parseLogLine('Round Won: unrelated text'), null);
-  console.log('PASS: live preview, no early unlock, unknown values, deduplication and stored unlocks');
+  console.log('PASS: Azrael tiers from save/live data, no early unlock, group matching, deduplication and legacy cleanup');
 }
 
 function testRenderer() {
@@ -215,6 +237,7 @@ async function testOverlay() {
   let finishInitial;
   let closeCount = 0;
   let unsubscribeCount = 0;
+  const overlayHeights = [];
   const events = {};
   const context = vm.createContext({
     document: {getElementById: id => fields[id]},
@@ -223,7 +246,8 @@ async function testOverlay() {
       TonTerrorNameResolver: terrorNames,
       tonsave: {
         onLogMessage(callback) { update = callback; return () => unsubscribeCount++; },
-        getLogState: () => new Promise(resolve => { finishInitial = resolve; })
+        getLogState: () => new Promise(resolve => { finishInitial = resolve; }),
+        setRoundOverlayHeight: height => overlayHeights.push(height)
       },
       close: () => closeCount++,
       addEventListener: (name, callback) => { events[name] = callback; }
@@ -236,6 +260,7 @@ async function testOverlay() {
   assert.equal(fields.mapName.textContent, 'Nexus');
   assert.equal(fields.terrorName.textContent, 'The Painter');
   assert.equal(fields.heldItem.textContent, 'Item: paleRegen');
+  assert.equal(overlayHeights.at(-1),116);
   finishInitial({liveRecord:null,heldItem:null});
   await Promise.resolve();
   assert.equal(fields.terrorName.textContent, 'The Painter', 'A stale initial snapshot must not replace a newer event');
@@ -248,6 +273,9 @@ async function testOverlay() {
   assert.equal(fields.terrorName.textContent, 'The Painter');
   update({state:{liveRecord:{...record,note:'',terrorData:[{i:9999},{i:0},{i:0}]}}});
   assert.equal(fields.terrorName.textContent, 'テラー名未取得');
+  update({state:{liveRecord:{...record,note:'',roundType:50,roundTypeExtra:'Midnight',terrorData:[{i:23},{i:0},{i:0}]}}});
+  assert.equal(fields.terrorName.textContent, 'The Painter\nHuggy\nDecayed Sponge');
+  assert.equal(overlayHeights.at(-1),152);
   update({state:{liveRecord:null,heldItem:null}});
   assert.equal(fields.roundType.textContent, 'ラウンド待機中');
   assert.equal(fields.heldItem.textContent, 'Item: Null');
@@ -313,6 +341,7 @@ function testTerrorNames() {
   assert.equal(terrorNames.resolve({...record,roundType:104}),'The Meatball Man');
   assert.equal(terrorNames.resolve({...record,roundType:100}),'PSYCHOSIS');
   assert.equal(terrorNames.resolve({...record,roundType:50,terrorData:[{i:23},{i:0},{i:0}]}),'The Painter & Huggy & Decayed Sponge');
+  assert.deepEqual(terrorNames.resolveAll({...record,roundType:50,terrorData:[{i:23},{i:0},{i:0}]}),['The Painter','Huggy','Decayed Sponge']);
   assert.equal(terrorNames.resolve({...record,roundType:6}),'Huggy (LVL 3)');
   assert.equal(terrorNames.resolve({...record,roundType:5,terrorData:[{i:35}]}),'Epic Bonnie');
   assert.equal(terrorNames.resolve({...record,roundType:52,roundTypeExtra:'Fog (Alternate)'}),'Decayed Sponge');
