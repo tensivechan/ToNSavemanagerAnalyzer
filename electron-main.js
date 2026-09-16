@@ -409,7 +409,9 @@ async function refreshDebugLogTail() {
   const resolved = await resolveMonitoredLogFile();
   if (!resolved || !resolved.path) return;
 
+  let initialRead = false;
   if (resolved.path !== activeLogFile) {
+    initialRead = true;
     activeLogFile = resolved.path;
     activeLogOffset = 0;
     activeLogRemainder = "";
@@ -449,7 +451,16 @@ async function refreshDebugLogTail() {
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, activeLogOffset);
     activeLogOffset = stat.size;
-    processLogChunk(buffer.toString("utf8"), { emit: true });
+    processLogChunk(buffer.toString("utf8"), { emit: !initialRead });
+    if (initialRead) {
+      broadcastLogMessage({
+        filePath: activeLogFile,
+        line: "",
+        update: { initialRead: true },
+        state: snapshotOscState(),
+        receivedAt: Date.now()
+      });
+    }
   } finally {
     await handle.close();
   }
@@ -1597,11 +1608,17 @@ ipcMain.handle("ui:open-log-monitor", () => {
 });
 
 app.whenReady().then(() => {
-  createWindow();
-  createRoundOverlayWindow();
-  startRoundOverlayWatchdog();
-  startDebugLogWatcher();
-  if (app.isPackaged) setupAutoUpdater();
+  const window = createWindow();
+  window.webContents.once("did-finish-load", () => {
+    setTimeout(() => {
+      if (!window.isDestroyed()) {
+        createRoundOverlayWindow();
+        startRoundOverlayWatchdog();
+        startDebugLogWatcher();
+      }
+    }, 150);
+    if (app.isPackaged) setTimeout(setupAutoUpdater, 3000);
+  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

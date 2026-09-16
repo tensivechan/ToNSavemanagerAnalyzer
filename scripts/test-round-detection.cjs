@@ -183,6 +183,8 @@ function testRenderer() {
   const html = fs.readFileSync(path.join(root, 'outputs/ton-save-analyzer.html'), 'utf8');
   assert.match(html, /setRoundOverlayVisibility\(!roundOverlayVisible\)/);
   assert.match(html, /onRoundOverlayVisibility\(updateRoundOverlayButton\)/);
+  assert.match(mainCode, /processLogChunk\(buffer\.toString\("utf8"\), \{ emit: !initialRead \}\)/);
+  assert.match(mainCode, /webContents\.once\("did-finish-load"/);
   const blocks = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   for (const match of blocks) {
     const src = match[1].match(/src="([^"]+)"/);
