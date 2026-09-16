@@ -15,6 +15,8 @@ let achievementsWindow = null;
 let logMonitorWindow = null;
 let roundOverlayWindow = null;
 let roundOverlayBounds = null;
+let roundOverlayVisibleRequested = true;
+let roundOverlayTopmostTimer = null;
 let oscSocket = null;
 let debugLogPollTimer = null;
 let activeLogFile = "";
@@ -105,6 +107,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"));
   mainWindow.on("closed", () => {
     mainWindow = null;
+    roundOverlayVisibleRequested = false;
     if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) roundOverlayWindow.close();
   });
   return mainWindow;
@@ -1246,8 +1249,10 @@ function broadcastRoundOverlayVisibility(visible) {
 }
 
 function createRoundOverlayWindow() {
+  roundOverlayVisibleRequested = true;
   if (roundOverlayWindow && !roundOverlayWindow.isDestroyed()) {
     roundOverlayWindow.showInactive();
+    roundOverlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
     broadcastRoundOverlayVisibility(true);
     return roundOverlayWindow;
   }
@@ -1266,7 +1271,8 @@ function createRoundOverlayWindow() {
       preload: path.join(__dirname, "preload.js") }
   });
   const overlay = roundOverlayWindow;
-  overlay.setAlwaysOnTop(true, "screen-saver");
+  overlay.setAlwaysOnTop(true, "screen-saver", 1);
+  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlay.once("ready-to-show", () => {
     if (!overlay.isDestroyed()) {
       overlay.showInactive();
@@ -1283,6 +1289,7 @@ function createRoundOverlayWindow() {
 }
 
 function setRoundOverlayVisibility(visible) {
+  roundOverlayVisibleRequested = Boolean(visible);
   if (visible) {
     createRoundOverlayWindow();
     return true;
@@ -1293,6 +1300,28 @@ function setRoundOverlayVisibility(visible) {
   }
   broadcastRoundOverlayVisibility(false);
   return false;
+}
+
+function maintainRoundOverlayWindow() {
+  if (!roundOverlayVisibleRequested) return;
+  if (!roundOverlayWindow || roundOverlayWindow.isDestroyed()) {
+    createRoundOverlayWindow();
+    return;
+  }
+  const bounds = roundOverlayWindow.getBounds();
+  const area = screen.getDisplayMatching(bounds).workArea;
+  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - bounds.width);
+  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - bounds.height);
+  if (x !== bounds.x || y !== bounds.y) roundOverlayWindow.setBounds({ ...bounds, x, y });
+  roundOverlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
+  roundOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (!roundOverlayWindow.isVisible()) roundOverlayWindow.showInactive();
+}
+
+function startRoundOverlayWatchdog() {
+  if (roundOverlayTopmostTimer) return;
+  roundOverlayTopmostTimer = setInterval(maintainRoundOverlayWindow, 2000);
+  if (roundOverlayTopmostTimer.unref) roundOverlayTopmostTimer.unref();
 }
 
 function padOscBuffer(buffer) {
@@ -1557,6 +1586,7 @@ ipcMain.handle("ui:set-round-overlay-height", (event, height) => {
   const area = screen.getDisplayMatching(bounds).workArea;
   const y = Math.min(bounds.y, area.y + area.height - nextHeight);
   roundOverlayWindow.setBounds({ ...bounds, y, height: nextHeight });
+  roundOverlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
   roundOverlayBounds = roundOverlayWindow.getBounds();
   return true;
 });
@@ -1569,11 +1599,18 @@ ipcMain.handle("ui:open-log-monitor", () => {
 app.whenReady().then(() => {
   createWindow();
   createRoundOverlayWindow();
+  startRoundOverlayWatchdog();
   startDebugLogWatcher();
   if (app.isPackaged) setupAutoUpdater();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("before-quit", () => {
+  roundOverlayVisibleRequested = false;
+  if (roundOverlayTopmostTimer) clearInterval(roundOverlayTopmostTimer);
+  roundOverlayTopmostTimer = null;
 });
 
 app.on("before-quit", () => {

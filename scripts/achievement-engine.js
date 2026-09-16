@@ -8,7 +8,7 @@
       name: "Azrael Survivor I",
       description: "通常のオルタネイトでAzraelから生存する",
       criteria: { roundTypes: [51], terrorKeysAny: ["1:34"], result: 1 },
-      source: "both",
+      source: "imported",
       osc: { address: "/avatar/parameters/AchievementAzraelNormal", value: true }
     },
     {
@@ -16,7 +16,7 @@
       name: "Azrael Survivor II",
       description: "霧のオルタネイトでAzraelから生存する",
       criteria: { roundTypes: [52], terrorKeysAny: ["1:34"], result: 1 },
-      source: "both",
+      source: "imported",
       osc: { address: "/avatar/parameters/AchievementAzraelFog", value: true }
     },
     {
@@ -24,7 +24,7 @@
       name: "Azrael Survivor III",
       description: "ゴーストのオルタネイトでAzraelから生存する",
       criteria: { roundTypes: [53], terrorKeysAny: ["1:34"], result: 1 },
-      source: "both",
+      source: "imported",
       osc: { address: "/avatar/parameters/AchievementAzraelGhost", value: true }
     },
     {
@@ -32,8 +32,16 @@
       name: "Azrael Survivor IV",
       description: "ミッドナイトでAzraelを含むラウンドから生存する",
       criteria: { roundTypes: [50], terrorKeysAny: ["1:34"], result: 1 },
-      source: "both",
+      source: "imported",
       osc: { address: "/avatar/parameters/AchievementAzraelMidnight", value: true }
+    },
+    {
+      id: "live_rounds_50000",
+      name: "ようやるわ、このゲーム",
+      description: "ツールをつけた状態で50,000ラウンドやる",
+      criteria: { countAtLeast: 50000, persistentLiveCount: true },
+      source: "live",
+      osc: { address: "/avatar/parameters/AchievementLiveRounds50000", value: true }
     }
   ];
 
@@ -64,6 +72,23 @@
     return record.terrorData
       .map(item => window.TonRounds.numberOrNull(item && item.i))
       .filter(Number.isFinite);
+  }
+
+  function loadPersistentProgress(storageKey) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(`${storageKey}-progress`) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function savePersistentProgress(storageKey, progress) {
+    try {
+      localStorage.setItem(`${storageKey}-progress`, JSON.stringify(progress));
+    } catch {
+      /* ignore */
+    }
   }
 
   function getTerrorKeys(record, roundType) {
@@ -223,9 +248,43 @@
     const unlocked = new Set(storedIds.filter(id => allowedIds.has(id)));
     if (unlocked.size !== storedIds.length) saveUnlockedIds(storageKey, unlocked);
 
+    function recordFingerprint(record) {
+      const timestamp = String(record && record.timestamp || "").trim();
+      const key = String(record && record.recordKey || "").trim();
+      return timestamp ? `${timestamp}|${key}` : key;
+    }
+
+    function syncPersistentProgress(records) {
+      if (source !== "live" || !Array.isArray(records)) return;
+      const stored = loadPersistentProgress(storageKey);
+      let changed = false;
+      for (const achievement of CATALOG) {
+        if (achievement.source !== "live" || !achievement.criteria?.persistentLiveCount) continue;
+        const target = getAchievementTarget(achievement);
+        const fingerprints = Array.isArray(stored[achievement.id]) ? stored[achievement.id].filter(Boolean) : [];
+        const seen = new Set(fingerprints);
+        for (const record of records) {
+          if (seen.size >= target || !matchesCriteria(record, achievement.criteria)) continue;
+          const fingerprint = recordFingerprint(record);
+          if (!fingerprint || seen.has(fingerprint)) continue;
+          seen.add(fingerprint);
+          changed = true;
+        }
+        stored[achievement.id] = [...seen].slice(0, target);
+      }
+      if (changed) savePersistentProgress(storageKey, stored);
+    }
+
+    function getPersistentCount(achievement) {
+      const stored = loadPersistentProgress(storageKey);
+      return Array.isArray(stored[achievement.id]) ? stored[achievement.id].length : 0;
+    }
+
     function getAchievementProgress(achievement, records) {
       const target = getAchievementTarget(achievement);
-      const count = countMatchingRecords(records, achievement.criteria);
+      const count = achievement.criteria?.persistentLiveCount
+        ? getPersistentCount(achievement)
+        : countMatchingRecords(records, achievement.criteria);
       return {
         id: achievement.id,
         count,
@@ -282,6 +341,7 @@
 
     async function scan(records, sendOsc) {
       if (!Array.isArray(records) || !records.length) return [];
+      syncPersistentProgress(records);
       const unlockedNow = [];
       for (const achievement of CATALOG) {
         if (achievement.source && achievement.source !== source && achievement.source !== "both") {
@@ -317,6 +377,7 @@
           });
       },
       progress(records) {
+        syncPersistentProgress(records);
         return CATALOG
           .filter(achievement => !achievement.source || achievement.source === source || achievement.source === "both")
           .map(achievement => getAchievementProgress(achievement, records));
@@ -325,6 +386,7 @@
       reset() {
         unlocked.clear();
         saveUnlockedIds(storageKey, unlocked);
+        savePersistentProgress(storageKey, {});
       }
     };
   }

@@ -39,7 +39,11 @@
     }
   }
 
-  document.getElementById("closeOverlay").addEventListener("click", () => window.close());
+  document.getElementById("closeOverlay").addEventListener("click", () => {
+    if (window.tonsave && window.tonsave.setRoundOverlayVisibility) {
+      window.tonsave.setRoundOverlayVisibility(false).catch(() => {});
+    }
+  });
   let updateCount = 0;
   const unsubscribe = window.tonsave && window.tonsave.onLogMessage(message => {
     if (!message || !message.state) return;

@@ -109,24 +109,30 @@ async function testAchievements() {
   const live = achievements.live;
   assert.deepEqual(Array.from(achievements.catalog, item => item.id), [
     'azrael_survivor_normal', 'azrael_survivor_fog',
-    'azrael_survivor_ghost', 'azrael_survivor_midnight'
+    'azrael_survivor_ghost', 'azrael_survivor_midnight', 'live_rounds_50000'
+  ]);
+  assert.equal(achievements.catalog.slice(0,4).every(item => item.source === 'imported'), true);
+  assert.equal(achievements.catalog[4].source, 'live');
+  assert.deepEqual(Array.from(live.progress([]), item => ({id:item.id,count:item.count,target:item.target})), [
+    {id:'live_rounds_50000',count:0,target:50000}
   ]);
   let sent = 0;
   const send = async () => { sent++; };
-  const active = { recordKey: 'live:1', roundPhase: 'active', roundType: 51, terrorDataSource:'log-slots', terrorData: [{ i: 34 }], result: null };
-  const preview = live.preview(active).find(item => item.id === 'azrael_survivor_normal');
-  assert.equal(preview.matches, true);
-  assert.equal(preview.waitingForResult, true);
+  const active = { recordKey: 'live:1', timestamp:'2026-09-16T00:00:01.000Z', roundPhase: 'active', roundType: 51, terrorDataSource:'log-slots', terrorData: [{ i: 34 }], result: null };
+  assert.equal(live.preview(active).find(item => item.id === 'live_rounds_50000').matches, true);
   assert.equal((await live.scan([active], send)).length, 0);
-  assert.equal(sent, 0, 'Preview must not unlock achievements or emit OSC');
+  assert.equal(live.progress([active])[0].count, 0, 'An active round must not count');
+  assert.equal(sent, 0, 'Progress must not emit OSC before completion');
   const ended = { ...active, roundPhase: 'ended' };
-  assert.equal((await live.scan([ended], send)).length, 0, 'End before result must not count as victory');
   ended.result = 1;
-  assert.equal((await live.scan([ended], send)).length, 1);
-  assert.equal(sent, 1);
   assert.equal((await live.scan([ended], send)).length, 0);
+  assert.equal(live.progress([ended, ended])[0].count, 1, 'The same completed round must count once');
   const secondWindow = createAchievementContext(storage).achievements.live;
-  assert.equal((await secondWindow.scan([ended], send)).length, 0, 'Existing unlock state must survive another window');
+  assert.equal(secondWindow.progress([ended])[0].count, 1, 'Live round progress must survive another window');
+  const nextEnded = {...ended,recordKey:'live:2',timestamp:'2026-09-16T00:01:01.000Z'};
+  assert.equal(secondWindow.progress([ended,nextEnded])[0].count, 2);
+  secondWindow.reset();
+  assert.equal(live.progress([])[0].count, 0, 'Reset must clear persistent round progress');
 
   const imported = createAchievementContext().achievements.imported;
   const savedRecords = [
@@ -137,14 +143,14 @@ async function testAchievements() {
   ];
   assert.equal((await imported.scan(savedRecords, send)).length, 4, 'Readable save records must unlock every matching Azrael tier');
   assert.equal(imported.progress(savedRecords).every(item => item.complete), true);
-  const wrongGroup = {recordKey:'wrong-group',roundPhase:'ended',roundType:50,terrorData:[{i:34},{i:0},{i:0}],result:1};
-  assert.equal((await createAchievementContext().achievements.live.scan([wrongGroup], send)).length, 0, 'Classic ID 34 must not be mistaken for Azrael');
+  const wrongGroup = {recordKey:'wrong-group',roundType:50,terrorData:[{i:34},{i:0},{i:0}],result:1};
+  assert.equal((await createAchievementContext().achievements.imported.scan([wrongGroup], send)).length, 0, 'Classic ID 34 must not be mistaken for Azrael');
   const loss = {...ended,recordKey:'loss',result:0};
-  assert.equal((await createAchievementContext().achievements.live.scan([loss], send)).length, 0, 'A loss must not unlock a survival tier');
+  assert.equal((await createAchievementContext().achievements.imported.scan([loss], send)).length, 0, 'A loss must not unlock a survival tier');
 
   const legacyStorage = new Map([
     ['tonsave-achievements-imported-unlocked', JSON.stringify(['classic_500','celestial_seraphim'])],
-    ['tonsave-achievements-live-unlocked', JSON.stringify(['midnight_fusion_pilot_win'])]
+    ['tonsave-achievements-live-unlocked', JSON.stringify(['midnight_fusion_pilot_win','azrael_survivor_normal'])]
   ]);
   const migrated = createAchievementContext(legacyStorage).achievements;
   assert.deepEqual(Array.from(migrated.imported.unlocked()), []);
@@ -162,7 +168,7 @@ async function testAchievements() {
     assert.equal(won.liveRecord.roundPhase, 'ended');
     assert.equal(won.liveRecords.length, 1);
     assert.equal(won.liveRecords[0].result, 1);
-    assert.equal((await wonAchievements.scan(won.liveRecords, send)).length, 1, 'Round Won must unlock the survival achievement');
+    assert.equal((await wonAchievements.scan(won.liveRecords, send)).length, 0, 'Round Won must not unlock save-only achievements');
     feed('Round Won', 'RoundOver', 'Verified Round End');
     assert.equal(snapshot().liveRecords.length, 1);
     assert.equal((await wonAchievements.scan(snapshot().liveRecords, send)).length, 0, 'Repeated win/end logs must not unlock twice');
@@ -170,7 +176,7 @@ async function testAchievements() {
     assert.equal(snapshot().liveRecord.result, null, 'A win must not carry into the next round');
   }
   assert.equal(rounds.parseLogLine('Round Won: unrelated text'), null);
-  console.log('PASS: Azrael tiers from save/live data, no early unlock, group matching, deduplication and legacy cleanup');
+  console.log('PASS: save-only Azrael tiers, persistent 50,000 live-round progress, group matching and legacy cleanup');
 }
 
 function testRenderer() {
@@ -236,6 +242,7 @@ async function testOverlay() {
   let update;
   let finishInitial;
   let closeCount = 0;
+  let hideCount = 0;
   let unsubscribeCount = 0;
   const overlayHeights = [];
   const events = {};
@@ -247,7 +254,8 @@ async function testOverlay() {
       tonsave: {
         onLogMessage(callback) { update = callback; return () => unsubscribeCount++; },
         getLogState: () => new Promise(resolve => { finishInitial = resolve; }),
-        setRoundOverlayHeight: height => overlayHeights.push(height)
+        setRoundOverlayHeight: height => overlayHeights.push(height),
+        setRoundOverlayVisibility: visible => { if (!visible) hideCount++; return Promise.resolve(false); }
       },
       close: () => closeCount++,
       addEventListener: (name, callback) => { events[name] = callback; }
@@ -281,7 +289,8 @@ async function testOverlay() {
   assert.equal(fields.heldItem.textContent, 'Item: Null');
   assert.equal(fields.mapName.textContent, '');
   fields.closeOverlay.click(); events.beforeunload();
-  assert.equal(closeCount, 1); assert.equal(unsubscribeCount, 1);
+  await Promise.resolve();
+  assert.equal(closeCount, 0); assert.equal(hideCount, 1); assert.equal(unsubscribeCount, 1);
 
   const windows = [];
   class FakeWindow {
@@ -291,18 +300,21 @@ async function testOverlay() {
     showInactive() { this.shown = true; }
     hide() { this.shown = false; }
     setAlwaysOnTop(flag, level) { this.top = {flag,level}; }
+    setVisibleOnAllWorkspaces(flag, options) { this.allWorkspaces = {flag,options}; }
     once(name, callback) { this.handlers[name] = callback; }
     on(name, callback) { this.handlers[name] = callback; }
     loadFile(file) { this.file = file; }
     getBounds() { return this.bounds; }
+    setBounds(bounds) { this.bounds = bounds; }
     close() { this.handlers.close?.(); this.destroyed = true; this.handlers.closed?.(); }
   }
   FakeWindow.getAllWindows=()=>windows.filter(win=>!win.destroyed);
   function mainFunction(name, next) {
     return mainCode.slice(mainCode.indexOf(`function ${name}(`), mainCode.indexOf(`function ${next}(`));
   }
-  const winContext = vm.createContext({BrowserWindow:FakeWindow,screen:{getPrimaryDisplay:()=>({workArea:{x:0,y:0,width:1920,height:1080}})},path,__dirname:root,iconPath:''});
-  vm.runInContext('let mainWindow=null,roundOverlayWindow=null,roundOverlayBounds=null;\n' + mainFunction('createWindow','broadcastOscMessage') + mainFunction('broadcastRoundOverlayVisibility','createRoundOverlayWindow') + mainFunction('createRoundOverlayWindow','padOscBuffer'), winContext);
+  const display={workArea:{x:0,y:0,width:1920,height:1080}};
+  const winContext = vm.createContext({BrowserWindow:FakeWindow,screen:{getPrimaryDisplay:()=>display,getDisplayMatching:()=>display},path,__dirname:root,iconPath:'',setInterval:()=>({unref:noop})});
+  vm.runInContext('let mainWindow=null,roundOverlayWindow=null,roundOverlayBounds=null,roundOverlayVisibleRequested=true,roundOverlayTopmostTimer=null;\n' + mainFunction('createWindow','broadcastOscMessage') + mainFunction('broadcastRoundOverlayVisibility','createRoundOverlayWindow') + mainFunction('createRoundOverlayWindow','padOscBuffer'), winContext);
   const overlay = vm.runInContext('createRoundOverlayWindow()',winContext);
   assert.equal(overlay.options.alwaysOnTop,true);
   assert.equal(overlay.options.movable,true);
@@ -313,6 +325,7 @@ async function testOverlay() {
   assert.equal(overlay.options.skipTaskbar,true);
   assert.equal(overlay.options.webPreferences.sandbox,true);
   assert.equal(overlay.top.level,'screen-saver');
+  assert.equal(overlay.allWorkspaces.options.visibleOnFullScreen,true);
   assert(overlay.file.endsWith('round-overlay.html'));
   overlay.handlers['ready-to-show']();
   assert.equal(overlay.shown,true);
@@ -323,6 +336,12 @@ async function testOverlay() {
   assert.equal(vm.runInContext('setRoundOverlayVisibility(true)',winContext),true);
   assert.equal(overlay.isVisible(),true);
   assert.equal(windows.length,1,'Showing a hidden overlay must reuse the same window');
+  overlay.shown=false;
+  vm.runInContext('maintainRoundOverlayWindow()',winContext);
+  assert.equal(overlay.isVisible(),true,'Watchdog must restore an unexpectedly hidden overlay');
+  overlay.bounds={x:2500,y:1400,width:240,height:116};
+  vm.runInContext('maintainRoundOverlayWindow()',winContext);
+  assert(overlay.bounds.x < 1920 && overlay.bounds.y < 1080,'Watchdog must return an off-screen overlay to a display');
   overlay.bounds={x:100,y:120,width:280,height:100}; overlay.close();
   const reopened=vm.runInContext('createRoundOverlayWindow()',winContext);
   assert.equal(reopened.options.x,100); assert.equal(reopened.options.width,280);
