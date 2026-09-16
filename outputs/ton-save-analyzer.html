@@ -225,6 +225,9 @@
     .settings-card { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
     .sound-setting { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.4fr) auto auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
     .sound-name { overflow: hidden; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+    .sound-volume { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(160px, 1fr) 52px; align-items: center; gap: 10px; color: var(--muted); }
+    .sound-volume input { width: 100%; accent-color: var(--accent); }
+    .sound-volume output { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
 
     html[data-view="achievements"] .app {
       display: none;
@@ -1289,7 +1292,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.32</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.33</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1477,12 +1480,14 @@
         <div class="sound-name" id="punishedSoundName">デフォルト音</div>
         <button class="ghost" id="punishedSoundChoose" type="button">音を選択</button>
         <button class="ghost" id="punishedSoundTest" type="button">試聴</button>
+        <label class="sound-volume">音量 <input id="punishedSoundVolume" type="range" min="0" max="100" step="1" value="100"><output id="punishedSoundVolumeValue">100%</output></label>
       </div>
       <div class="sound-setting">
         <label><input id="eightPagesSoundEnabled" type="checkbox"> 8 Pages終了時</label>
         <div class="sound-name" id="eightPagesSoundName">デフォルト音</div>
         <button class="ghost" id="eightPagesSoundChoose" type="button">音を選択</button>
         <button class="ghost" id="eightPagesSoundTest" type="button">試聴</button>
+        <label class="sound-volume">音量 <input id="eightPagesSoundVolume" type="range" min="0" max="100" step="1" value="100"><output id="eightPagesSoundVolumeValue">100%</output></label>
       </div>
       <div><button class="ghost" id="roundSoundsReset" type="button">初期音に戻す</button></div>
     </section>
@@ -1605,8 +1610,8 @@
     const roundEndSoundFileName = "RoundEndDefault.mp3";
     const roundEndSoundStorageKey = "tonsave-round-end-sounds-v1";
     const defaultRoundEndSoundSettings = Object.freeze({
-      punished: { enabled: true, name: "デフォルト音", url: "" },
-      eightPages: { enabled: true, name: "デフォルト音", url: "" }
+      punished: { enabled: true, name: "デフォルト音", url: "", volume: 1 },
+      eightPages: { enabled: true, name: "デフォルト音", url: "", volume: 1 }
     });
 
     const state = {
@@ -1769,10 +1774,14 @@
         punishedSoundName: document.getElementById("punishedSoundName"),
         punishedSoundChoose: document.getElementById("punishedSoundChoose"),
         punishedSoundTest: document.getElementById("punishedSoundTest"),
+        punishedSoundVolume: document.getElementById("punishedSoundVolume"),
+        punishedSoundVolumeValue: document.getElementById("punishedSoundVolumeValue"),
         eightPagesSoundEnabled: document.getElementById("eightPagesSoundEnabled"),
         eightPagesSoundName: document.getElementById("eightPagesSoundName"),
         eightPagesSoundChoose: document.getElementById("eightPagesSoundChoose"),
         eightPagesSoundTest: document.getElementById("eightPagesSoundTest"),
+        eightPagesSoundVolume: document.getElementById("eightPagesSoundVolume"),
+        eightPagesSoundVolumeValue: document.getElementById("eightPagesSoundVolumeValue"),
         roundSoundsReset: document.getElementById("roundSoundsReset")
       };
 
@@ -1850,6 +1859,8 @@
       els.eightPagesSoundTest.addEventListener("click", () => playRoundEndSound("eightPages", true));
       els.punishedSoundEnabled.addEventListener("change", () => setRoundEndSoundEnabled("punished", els.punishedSoundEnabled.checked));
       els.eightPagesSoundEnabled.addEventListener("change", () => setRoundEndSoundEnabled("eightPages", els.eightPagesSoundEnabled.checked));
+      els.punishedSoundVolume.addEventListener("input", () => setRoundEndSoundVolume("punished", els.punishedSoundVolume.value));
+      els.eightPagesSoundVolume.addEventListener("input", () => setRoundEndSoundVolume("eightPages", els.eightPagesSoundVolume.value));
       els.roundSoundsReset.addEventListener("click", resetRoundEndSounds);
       window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
       window.addEventListener("storage", event => {
@@ -2360,10 +2371,14 @@
     function loadRoundEndSoundSettings() {
       let saved = {};
       try { saved = JSON.parse(localStorage.getItem(roundEndSoundStorageKey) || "{}"); } catch { saved = {}; }
-      return Object.fromEntries(Object.entries(defaultRoundEndSoundSettings).map(([key, defaults]) => [key, {
-        ...defaults,
-        ...(saved && saved[key] && typeof saved[key] === "object" ? saved[key] : {})
-      }]));
+      return Object.fromEntries(Object.entries(defaultRoundEndSoundSettings).map(([key, defaults]) => {
+        const setting = {
+          ...defaults,
+          ...(saved && saved[key] && typeof saved[key] === "object" ? saved[key] : {})
+        };
+        setting.volume = window.TonRoundEndSounds.normalizeVolume(setting.volume);
+        return [key, setting];
+      }));
     }
 
     function saveRoundEndSoundSettings() {
@@ -2384,7 +2399,7 @@
       if (!source) { state.roundEndSoundAudio[key] = null; return; }
       const audio = new Audio(source);
       audio.preload = "auto";
-      audio.volume = 1;
+      audio.volume = window.TonRoundEndSounds.normalizeVolume(setting && setting.volume);
       audio.load();
       state.roundEndSoundAudio[key] = audio;
     }
@@ -2404,14 +2419,17 @@
     }
 
     function renderRoundEndSoundSettings() {
-      for (const [key, enabledNode, nameNode] of [
-        ["punished", els.punishedSoundEnabled, els.punishedSoundName],
-        ["eightPages", els.eightPagesSoundEnabled, els.eightPagesSoundName]
+      for (const [key, enabledNode, nameNode, volumeNode, volumeValueNode] of [
+        ["punished", els.punishedSoundEnabled, els.punishedSoundName, els.punishedSoundVolume, els.punishedSoundVolumeValue],
+        ["eightPages", els.eightPagesSoundEnabled, els.eightPagesSoundName, els.eightPagesSoundVolume, els.eightPagesSoundVolumeValue]
       ]) {
         const setting = state.roundEndSoundSettings[key];
+        const volumePercent = Math.round(window.TonRoundEndSounds.normalizeVolume(setting.volume) * 100);
         enabledNode.checked = Boolean(setting.enabled);
         nameNode.textContent = setting.name || "デフォルト音";
         nameNode.title = setting.name || "デフォルト音";
+        volumeNode.value = String(volumePercent);
+        volumeValueNode.textContent = `${volumePercent}%`;
       }
     }
 
@@ -2427,6 +2445,15 @@
 
     function setRoundEndSoundEnabled(key, enabled) {
       state.roundEndSoundSettings[key] = { ...state.roundEndSoundSettings[key], enabled: Boolean(enabled) };
+      saveRoundEndSoundSettings();
+      renderRoundEndSoundSettings();
+    }
+
+    function setRoundEndSoundVolume(key, percent) {
+      const volume = window.TonRoundEndSounds.normalizeVolume(Number(percent) / 100);
+      state.roundEndSoundSettings[key] = { ...state.roundEndSoundSettings[key], volume };
+      const audio = state.roundEndSoundAudio[key];
+      if (audio) audio.volume = volume;
       saveRoundEndSoundSettings();
       renderRoundEndSoundSettings();
     }
@@ -2618,7 +2645,7 @@
 
     function handleLogMessage(message) {
       if (!message || !message.state) return;
-      syncLiveLogState(message.state);
+      syncLiveLogState(message.state, { update: message.update });
       syncMonitorState(message.state);
     }
 
@@ -2668,7 +2695,7 @@
       }
     }
 
-    function syncLiveLogState(snapshot = {}) {
+    function syncLiveLogState(snapshot = {}, options = {}) {
       const hadLiveSnapshot = state.liveSnapshotReceived;
       state.liveSnapshotReceived = true;
       liveLogState.note = value(snapshot.note);
@@ -2703,7 +2730,8 @@
         ? snapshot.liveRecords.map(normalizeLiveRecord).filter(Boolean)
         : [];
       if (isPrimaryView && state.roundEndSoundDetector) {
-        state.roundEndSoundDetector.sync(state.liveRecords, { silent: !hadLiveSnapshot });
+        const silent = window.TonRoundEndSounds.shouldSyncSilently(hadLiveSnapshot, options.update);
+        state.roundEndSoundDetector.sync(state.liveRecords, { silent });
       }
       renderLivePanel();
 

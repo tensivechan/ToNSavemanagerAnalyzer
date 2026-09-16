@@ -15,6 +15,16 @@
     return timestamp ? `${timestamp}|${key}` : key;
   }
 
+  function shouldSyncSilently(hadSnapshot, update = {}) {
+    return !hadSnapshot || Boolean(update && (update.initialRead || update.reset));
+  }
+
+  function normalizeVolume(value, fallback = 1) {
+    const number = Number(value);
+    const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : 1;
+    return Math.min(1, Math.max(0, Number.isFinite(number) ? number : safeFallback));
+  }
+
   function createDetector(onRoundEnd) {
     const seen = new Set();
     return Object.freeze({
@@ -35,5 +45,5 @@
     });
   }
 
-  return Object.freeze({soundKey, fingerprint, createDetector});
+  return Object.freeze({soundKey, fingerprint, shouldSyncSilently, normalizeVolume, createDetector});
 });

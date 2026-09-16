@@ -94,6 +94,14 @@ assert.equal(api.parseLogTerrorData('[{"i":29,"g":1}]')[0].g, 1);
 console.log('PASS: classification, raw IDs, lifecycle, delayed results and consecutive rounds');
 
 {
+  assert.equal(roundEndSounds.shouldSyncSilently(false, {}), true, 'The first renderer snapshot must be silent');
+  assert.equal(roundEndSounds.shouldSyncSilently(true, {initialRead:true}), true, 'Initial log replay must be silent');
+  assert.equal(roundEndSounds.shouldSyncSilently(true, {reset:true}), true, 'Log source reset must be silent');
+  assert.equal(roundEndSounds.shouldSyncSilently(true, {}), false, 'New live updates may play sounds');
+  assert.equal(roundEndSounds.normalizeVolume(undefined), 1);
+  assert.equal(roundEndSounds.normalizeVolume(0.35), 0.35);
+  assert.equal(roundEndSounds.normalizeVolume(-1), 0);
+  assert.equal(roundEndSounds.normalizeVolume(2), 1);
   const played = [];
   const detector = roundEndSounds.createDetector((key, record) => played.push([key, record.recordKey]));
   const oldPunished = {recordKey:'old:1',timestamp:'2026-09-16T00:00:00Z',roundPhase:'ended',roundType:3};
