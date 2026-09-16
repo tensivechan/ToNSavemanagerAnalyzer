@@ -1289,7 +1289,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.31</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.32</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1602,6 +1602,7 @@
     ]);
 
     const specialVictorySoundFileName = "TranspotationTrioandTheDrifter.mp3";
+    const roundEndSoundFileName = "RoundEndDefault.mp3";
     const roundEndSoundStorageKey = "tonsave-round-end-sounds-v1";
     const defaultRoundEndSoundSettings = Object.freeze({
       punished: { enabled: true, name: "デフォルト音", url: "" },
@@ -2372,7 +2373,7 @@
     async function initRoundEndSounds() {
       renderRoundEndSoundSettings();
       if (!window.tonsave || typeof window.tonsave.getAssetPath !== "function") return;
-      state.roundEndSoundDefaultPath = await window.tonsave.getAssetPath(specialVictorySoundFileName);
+      state.roundEndSoundDefaultPath = await window.tonsave.getAssetPath(roundEndSoundFileName);
       for (const key of ["punished", "eightPages"]) refreshRoundEndSoundAudio(key);
       renderRoundEndSoundSettings();
     }
