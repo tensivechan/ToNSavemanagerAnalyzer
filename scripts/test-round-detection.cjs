@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const rounds = require('./round-classifier.js');
+const roundEndSounds = require('./round-end-sounds.js');
 const terrorNames = require('./terror-name-resolver.js');
 const localRequire = createRequire(path.join(root, 'electron-main.js'));
 const mainCode = fs.readFileSync(path.join(root, 'electron-main.js'), 'utf8');
@@ -91,6 +92,22 @@ assert.match(snapshot().liveRecord.terrorComposition, /クラシック2体 \/ �
 assert.equal(api.parseLogLine('Terror Name: Value').note, 'Value');
 assert.equal(api.parseLogTerrorData('[{"i":29,"g":1}]')[0].g, 1);
 console.log('PASS: classification, raw IDs, lifecycle, delayed results and consecutive rounds');
+
+{
+  const played = [];
+  const detector = roundEndSounds.createDetector((key, record) => played.push([key, record.recordKey]));
+  const oldPunished = {recordKey:'old:1',timestamp:'2026-09-16T00:00:00Z',roundPhase:'ended',roundType:3};
+  assert.deepEqual(Array.from(detector.sync([oldPunished], {silent:true})), []);
+  assert.deepEqual(Array.from(detector.sync([oldPunished])), []);
+  const punished = {recordKey:'live:1',timestamp:'2026-09-16T00:01:00Z',roundPhase:'ended',roundType:3};
+  const pages = {recordKey:'live:2',timestamp:'2026-09-16T00:02:00Z',roundPhase:'ended',roundType:105};
+  const activePages = {...pages,recordKey:'live:3',timestamp:'2026-09-16T00:03:00Z',roundPhase:'active'};
+  assert.deepEqual(Array.from(detector.sync([punished,pages,activePages])), ['punished','eightPages']);
+  assert.deepEqual(played, [['punished','live:1'],['eightPages','live:2']]);
+  assert.deepEqual(Array.from(detector.sync([punished,pages])), []);
+  assert.equal(roundEndSounds.soundKey({roundType:1}), '');
+  console.log('PASS: Punished and 8 Pages round-end sound detection and deduplication');
+}
 
 function createAchievementContext(storage = new Map()) {
   const node = () => ({ classList: { add: noop }, appendChild: noop, remove: noop, style: {} });
@@ -183,8 +200,12 @@ function testRenderer() {
   const html = fs.readFileSync(path.join(root, 'outputs/ton-save-analyzer.html'), 'utf8');
   assert.match(html, /setRoundOverlayVisibility\(!roundOverlayVisible\)/);
   assert.match(html, /onRoundOverlayVisibility\(updateRoundOverlayButton\)/);
+  assert.match(html, /id="settingsShell"/);
+  assert.match(html, /chooseRoundEndSound\("punished"\)/);
+  assert.match(html, /chooseRoundEndSound\("eightPages"\)/);
   assert.match(mainCode, /processLogChunk\(buffer\.toString\("utf8"\), \{ emit: !initialRead \}\)/);
   assert.match(mainCode, /webContents\.once\("did-finish-load"/);
+  assert.match(mainCode, /backgroundThrottling: false/);
   const blocks = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   for (const match of blocks) {
     const src = match[1].match(/src="([^"]+)"/);

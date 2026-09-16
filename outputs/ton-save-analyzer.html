@@ -10,6 +10,8 @@
           ? "achievements"
           : viewName === "monitor"
             ? "monitor"
+            : viewName === "settings"
+              ? "settings"
           : "app";
     </script>
   <title>ToNSaveManager Analyzer</title>
@@ -208,6 +210,21 @@
       gap: 16px;
       padding: 22px clamp(16px, 3vw, 32px) 28px;
     }
+
+    .settings-shell {
+      min-height: 100vh;
+      display: none;
+      align-content: start;
+      gap: 18px;
+      padding: 22px clamp(16px, 3vw, 32px) 28px;
+    }
+
+    html[data-view="settings"] .app { display: none; }
+    html[data-view="settings"] .settings-shell { display: grid; }
+
+    .settings-card { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+    .sound-setting { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.4fr) auto auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .sound-name { overflow: hidden; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
 
     html[data-view="achievements"] .app {
       display: none;
@@ -1272,7 +1289,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.30</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.31</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1283,6 +1300,7 @@
           <button class="ghost hidden" id="rainbowBtn" type="button" title="Rainbow">🌈</button>
           <button class="ghost" id="monitorBtn" type="button" title="監視先">👁</button>
           <button class="ghost" id="roundOverlayBtn" type="button" title="最前面表示を非表示" aria-pressed="true">最前面表示を非表示</button>
+          <button class="ghost" id="settingsBtn" type="button" title="設定">⚙</button>
           <button class="ghost" id="achievementsBtn" type="button" title="実績">🏆</button>
         </div>
 
@@ -1448,7 +1466,30 @@
     </div>
   </div>
 
+  <div class="settings-shell" id="settingsShell">
+    <div class="achievements-head">
+      <div class="achievements-title"><h1>設定</h1><div class="achievements-subtitle">ラウンド終了サウンド</div></div>
+      <button class="ghost" id="settingsCloseBtn" type="button" title="閉じる">✕</button>
+    </div>
+    <section class="settings-card">
+      <div class="sound-setting">
+        <label><input id="punishedSoundEnabled" type="checkbox"> Punished終了時</label>
+        <div class="sound-name" id="punishedSoundName">デフォルト音</div>
+        <button class="ghost" id="punishedSoundChoose" type="button">音を選択</button>
+        <button class="ghost" id="punishedSoundTest" type="button">試聴</button>
+      </div>
+      <div class="sound-setting">
+        <label><input id="eightPagesSoundEnabled" type="checkbox"> 8 Pages終了時</label>
+        <div class="sound-name" id="eightPagesSoundName">デフォルト音</div>
+        <button class="ghost" id="eightPagesSoundChoose" type="button">音を選択</button>
+        <button class="ghost" id="eightPagesSoundTest" type="button">試聴</button>
+      </div>
+      <div><button class="ghost" id="roundSoundsReset" type="button">初期音に戻す</button></div>
+    </section>
+  </div>
+
   <script src="../scripts/round-classifier.js"></script>
+  <script src="../scripts/round-end-sounds.js"></script>
   <script src="../scripts/achievement-engine.js"></script>
   <script>
     const mapNames = new Map([
@@ -1561,6 +1602,11 @@
     ]);
 
     const specialVictorySoundFileName = "TranspotationTrioandTheDrifter.mp3";
+    const roundEndSoundStorageKey = "tonsave-round-end-sounds-v1";
+    const defaultRoundEndSoundSettings = Object.freeze({
+      punished: { enabled: true, name: "デフォルト音", url: "" },
+      eightPages: { enabled: true, name: "デフォルト音", url: "" }
+    });
 
     const state = {
       fileNames: [],
@@ -1600,7 +1646,11 @@
         path: "",
         audio: null,
         ready: false
-      }
+      },
+      roundEndSoundSettings: loadRoundEndSoundSettings(),
+      roundEndSoundAudio: { punished: null, eightPages: null },
+      roundEndSoundDefaultPath: "",
+      roundEndSoundDetector: null
     };
 
     const liveLogState = {
@@ -1624,6 +1674,9 @@
 
     const isAchievementsView = document.documentElement.dataset.view === "achievements";
     const isMonitorView = document.documentElement.dataset.view === "monitor";
+    const isSettingsView = document.documentElement.dataset.view === "settings";
+    const isPrimaryView = !isAchievementsView && !isMonitorView && !isSettingsView;
+    state.roundEndSoundDetector = window.TonRoundEndSounds.createDetector(key => playRoundEndSound(key));
     let roundOverlayVisible = true;
 
     function updateRoundOverlayButton(visible) {
@@ -1651,6 +1704,7 @@
         rainbowBtn: document.getElementById("rainbowBtn"),
         monitorBtn: document.getElementById("monitorBtn"),
         roundOverlayBtn: document.getElementById("roundOverlayBtn"),
+        settingsBtn: document.getElementById("settingsBtn"),
         achievementsBtn: document.getElementById("achievementsBtn"),
       recordsBody: document.getElementById("recordsBody"),
       emptyState: document.getElementById("emptyState"),
@@ -1708,7 +1762,17 @@
         monitorFeedHint: document.getElementById("monitorFeedHint"),
         monitorFeed: document.getElementById("monitorFeed"),
         monitorRefreshBtn: document.getElementById("monitorRefreshBtn"),
-        monitorCloseBtn: document.getElementById("monitorCloseBtn")
+        monitorCloseBtn: document.getElementById("monitorCloseBtn"),
+        settingsCloseBtn: document.getElementById("settingsCloseBtn"),
+        punishedSoundEnabled: document.getElementById("punishedSoundEnabled"),
+        punishedSoundName: document.getElementById("punishedSoundName"),
+        punishedSoundChoose: document.getElementById("punishedSoundChoose"),
+        punishedSoundTest: document.getElementById("punishedSoundTest"),
+        eightPagesSoundEnabled: document.getElementById("eightPagesSoundEnabled"),
+        eightPagesSoundName: document.getElementById("eightPagesSoundName"),
+        eightPagesSoundChoose: document.getElementById("eightPagesSoundChoose"),
+        eightPagesSoundTest: document.getElementById("eightPagesSoundTest"),
+        roundSoundsReset: document.getElementById("roundSoundsReset")
       };
 
     els.pickBtn.addEventListener("click", () => els.fileInput.click());
@@ -1750,6 +1814,7 @@
       els.themeBtn.addEventListener("click", toggleTheme);
       els.rainbowBtn.addEventListener("click", toggleRainbowMode);
       els.monitorBtn.addEventListener("click", openLogMonitorWindow);
+      els.settingsBtn.addEventListener("click", openSettingsWindow);
       els.roundOverlayBtn.addEventListener("click", async () => {
         if (!window.tonsave || !window.tonsave.setRoundOverlayVisibility) return;
         updateRoundOverlayButton(await window.tonsave.setRoundOverlayVisibility(!roundOverlayVisible));
@@ -1777,8 +1842,19 @@
       });
       els.monitorRefreshBtn.addEventListener("click", refreshMonitorView);
       els.monitorCloseBtn.addEventListener("click", () => window.close());
+      els.settingsCloseBtn.addEventListener("click", () => window.close());
+      els.punishedSoundChoose.addEventListener("click", () => chooseRoundEndSound("punished"));
+      els.eightPagesSoundChoose.addEventListener("click", () => chooseRoundEndSound("eightPages"));
+      els.punishedSoundTest.addEventListener("click", () => playRoundEndSound("punished", true));
+      els.eightPagesSoundTest.addEventListener("click", () => playRoundEndSound("eightPages", true));
+      els.punishedSoundEnabled.addEventListener("change", () => setRoundEndSoundEnabled("punished", els.punishedSoundEnabled.checked));
+      els.eightPagesSoundEnabled.addEventListener("change", () => setRoundEndSoundEnabled("eightPages", els.eightPagesSoundEnabled.checked));
+      els.roundSoundsReset.addEventListener("click", resetRoundEndSounds);
       window.addEventListener("tonsave-achievement-unlocked", renderAchievementsView);
-      window.addEventListener("storage", renderAchievementsView);
+      window.addEventListener("storage", event => {
+        renderAchievementsView();
+        handleRoundEndSoundStorage(event);
+      });
       window.addEventListener("tonsave-log-updated", handleLogMessage);
       if (window.tonsave && typeof window.tonsave.onLogMessage === "function") {
         window.tonsave.onLogMessage(handleLogMessage);
@@ -1821,6 +1897,7 @@
         window.tonsave.onUpdateMessage(handleUpdateMessage);
       }
       initSpecialVictorySound().catch(() => {});
+      initRoundEndSounds().catch(() => {});
 
     applyTheme(state.theme);
     applyRainbowMode(state.rainbowMode);
@@ -2275,6 +2352,101 @@
       }
     }
 
+    function openSettingsWindow() {
+      if (window.tonsave && typeof window.tonsave.openSettings === "function") window.tonsave.openSettings();
+    }
+
+    function loadRoundEndSoundSettings() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(roundEndSoundStorageKey) || "{}"); } catch { saved = {}; }
+      return Object.fromEntries(Object.entries(defaultRoundEndSoundSettings).map(([key, defaults]) => [key, {
+        ...defaults,
+        ...(saved && saved[key] && typeof saved[key] === "object" ? saved[key] : {})
+      }]));
+    }
+
+    function saveRoundEndSoundSettings() {
+      localStorage.setItem(roundEndSoundStorageKey, JSON.stringify(state.roundEndSoundSettings));
+    }
+
+    async function initRoundEndSounds() {
+      renderRoundEndSoundSettings();
+      if (!window.tonsave || typeof window.tonsave.getAssetPath !== "function") return;
+      state.roundEndSoundDefaultPath = await window.tonsave.getAssetPath(specialVictorySoundFileName);
+      for (const key of ["punished", "eightPages"]) refreshRoundEndSoundAudio(key);
+      renderRoundEndSoundSettings();
+    }
+
+    function refreshRoundEndSoundAudio(key) {
+      const setting = state.roundEndSoundSettings[key];
+      const source = setting && setting.url ? setting.url : state.roundEndSoundDefaultPath;
+      if (!source) { state.roundEndSoundAudio[key] = null; return; }
+      const audio = new Audio(source);
+      audio.preload = "auto";
+      audio.volume = 1;
+      audio.load();
+      state.roundEndSoundAudio[key] = audio;
+    }
+
+    function playRoundEndSound(key, force = false) {
+      const setting = state.roundEndSoundSettings[key];
+      if (!setting || (!setting.enabled && !force)) return;
+      const audio = state.roundEndSoundAudio[key];
+      if (!audio) return;
+      try {
+        audio.currentTime = 0;
+        const promise = audio.play();
+        if (promise && typeof promise.catch === "function") promise.catch(error => logConsoleWarn("Round end sound failed", error));
+      } catch (error) {
+        logConsoleWarn("Round end sound failed", error);
+      }
+    }
+
+    function renderRoundEndSoundSettings() {
+      for (const [key, enabledNode, nameNode] of [
+        ["punished", els.punishedSoundEnabled, els.punishedSoundName],
+        ["eightPages", els.eightPagesSoundEnabled, els.eightPagesSoundName]
+      ]) {
+        const setting = state.roundEndSoundSettings[key];
+        enabledNode.checked = Boolean(setting.enabled);
+        nameNode.textContent = setting.name || "デフォルト音";
+        nameNode.title = setting.name || "デフォルト音";
+      }
+    }
+
+    async function chooseRoundEndSound(key) {
+      if (!window.tonsave || typeof window.tonsave.chooseSoundFile !== "function") return;
+      const selected = await window.tonsave.chooseSoundFile();
+      if (!selected || !selected.url) return;
+      state.roundEndSoundSettings[key] = { ...state.roundEndSoundSettings[key], url: selected.url, name: selected.name || "カスタム音" };
+      saveRoundEndSoundSettings();
+      refreshRoundEndSoundAudio(key);
+      renderRoundEndSoundSettings();
+    }
+
+    function setRoundEndSoundEnabled(key, enabled) {
+      state.roundEndSoundSettings[key] = { ...state.roundEndSoundSettings[key], enabled: Boolean(enabled) };
+      saveRoundEndSoundSettings();
+      renderRoundEndSoundSettings();
+    }
+
+    function resetRoundEndSounds() {
+      state.roundEndSoundSettings = loadRoundEndSoundSettings();
+      for (const key of ["punished", "eightPages"]) {
+        state.roundEndSoundSettings[key] = { ...defaultRoundEndSoundSettings[key] };
+        refreshRoundEndSoundAudio(key);
+      }
+      saveRoundEndSoundSettings();
+      renderRoundEndSoundSettings();
+    }
+
+    function handleRoundEndSoundStorage(event) {
+      if (event && event.key && event.key !== roundEndSoundStorageKey) return;
+      state.roundEndSoundSettings = loadRoundEndSoundSettings();
+      for (const key of ["punished", "eightPages"]) refreshRoundEndSoundAudio(key);
+      renderRoundEndSoundSettings();
+    }
+
     async function initSpecialVictorySound() {
       if (!window.tonsave || typeof window.tonsave.getAssetPath !== "function") return;
       const path = await window.tonsave.getAssetPath(specialVictorySoundFileName);
@@ -2496,6 +2668,7 @@
     }
 
     function syncLiveLogState(snapshot = {}) {
+      const hadLiveSnapshot = state.liveSnapshotReceived;
       state.liveSnapshotReceived = true;
       liveLogState.note = value(snapshot.note);
       liveLogState.roundType = numberOrNull(snapshot.roundType);
@@ -2528,6 +2701,9 @@
       state.liveRecords = Array.isArray(snapshot.liveRecords)
         ? snapshot.liveRecords.map(normalizeLiveRecord).filter(Boolean)
         : [];
+      if (isPrimaryView && state.roundEndSoundDetector) {
+        state.roundEndSoundDetector.sync(state.liveRecords, { silent: !hadLiveSnapshot });
+      }
       renderLivePanel();
 
       if (window.TonAchievements && window.TonAchievements.live) {

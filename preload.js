@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld("tonsave", {
   openLogMonitor() {
     return ipcRenderer.invoke("ui:open-log-monitor");
   },
+  openSettings() {
+    return ipcRenderer.invoke("ui:open-settings");
+  },
+  chooseSoundFile() {
+    return ipcRenderer.invoke("ui:choose-sound-file");
+  },
   onLogMessage(callback) {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, message) => callback(message);

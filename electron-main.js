@@ -1,10 +1,12 @@
 ﻿const { app, BrowserWindow, screen } = require("electron");
 const { ipcMain } = require("electron");
+const { dialog } = require("electron");
 const log = require("electron-log");
 const fs = require("node:fs");
 const dgram = require("node:dgram");
 const os = require("node:os");
 const path = require("path");
+const { pathToFileURL } = require("node:url");
 const TonRounds = require("./scripts/round-classifier.js");
 
 log.transports.file.level = "info";
@@ -13,6 +15,7 @@ let autoUpdater = null;
 let mainWindow = null;
 let achievementsWindow = null;
 let logMonitorWindow = null;
+let settingsWindow = null;
 let roundOverlayWindow = null;
 let roundOverlayBounds = null;
 let roundOverlayVisibleRequested = true;
@@ -100,6 +103,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
       preload: path.join(__dirname, "preload.js")
     }
   });
@@ -1251,6 +1255,27 @@ function createLogMonitorWindow() {
   return logMonitorWindow;
 }
 
+function createSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+  settingsWindow = new BrowserWindow({
+    width: 760, height: 560, minWidth: 620, minHeight: 480,
+    backgroundColor: "#f6f4ef", title: "設定", icon: iconPath,
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+      preload: path.join(__dirname, "preload.js")
+    }
+  });
+  settingsWindow.loadFile(path.join(__dirname, "outputs", "ton-save-analyzer.html"), {
+    query: { view: "settings" }
+  });
+  settingsWindow.on("closed", () => { settingsWindow = null; });
+  return settingsWindow;
+}
+
 function broadcastRoundOverlayVisibility(visible) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win !== roundOverlayWindow && !win.isDestroyed()) {
@@ -1605,6 +1630,26 @@ ipcMain.handle("ui:set-round-overlay-height", (event, height) => {
 ipcMain.handle("ui:open-log-monitor", () => {
   createLogMonitorWindow();
   return true;
+});
+
+ipcMain.handle("ui:open-settings", () => {
+  createSettingsWindow();
+  return true;
+});
+
+ipcMain.handle("ui:choose-sound-file", async event => {
+  const owner = BrowserWindow.fromWebContents(event.sender) || settingsWindow || mainWindow;
+  const result = await dialog.showOpenDialog(owner, {
+    title: "ラウンド終了サウンドを選択",
+    properties: ["openFile"],
+    filters: [
+      { name: "Audio", extensions: ["mp3", "wav", "ogg", "m4a", "aac", "flac"] },
+      { name: "All files", extensions: ["*"] }
+    ]
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  const filePath = result.filePaths[0];
+  return { name: path.basename(filePath), url: pathToFileURL(filePath).href };
 });
 
 app.whenReady().then(() => {
