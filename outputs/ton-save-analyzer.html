@@ -440,6 +440,30 @@
       letter-spacing: .04em;
     }
 
+    .construct-analysis {
+      margin: 16px clamp(16px, 3vw, 32px) 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.8);
+      box-shadow: var(--shadow);
+    }
+
+    .construct-analysis-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .construct-analysis h2 { margin: 0; font-size: 16px; }
+    .construct-analysis p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .construct-instance-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+    .construct-instance { padding: 10px; border: 1px solid var(--line); border-radius: 7px; min-width: 0; }
+    .construct-instance b { display: block; font-size: 18px; }
+    .construct-instance-name { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
     main {
       display: grid;
       grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
@@ -813,6 +837,13 @@
     body[data-theme="dark"] .metric {
       background: #151b25;
       border-color: var(--line);
+      box-shadow: none;
+    }
+
+    body[data-theme="dark"] .construct-analysis,
+    body[data-theme="dark"] .construct-instance {
+      background: #151b25;
+      border-color: #2b3442;
       box-shadow: none;
     }
 
@@ -1292,7 +1323,7 @@
           <div class="update-panel">
             <div class="update-label">Update</div>
             <div class="update-status" id="updateStatusText">起動時に更新を確認します</div>
-            <div class="update-pill" id="updateCurrentVersion">v1.1.33</div>
+            <div class="update-pill" id="updateCurrentVersion">v1.1.34</div>
             <div class="update-pill hidden" id="updateLatestVersion">latest --</div>
             <button class="ghost" id="checkUpdateBtn" type="button" title="更新確認">↻</button>
             <button class="primary hidden" id="installUpdateBtn" type="button" title="再起動して適用">更新を適用</button>
@@ -1352,6 +1383,16 @@
       <div class="metric"><b id="mMaps">0</b><span>Maps</span></div>
       <div class="metric"><b id="mTerrors">0</b><span>Terrors</span></div>
       <div class="metric"><b id="mWins">0</b><span>Wins</span></div>
+      <div class="metric"><b id="mConstructGigabyte">--</b><span>Construct → GIGABYTE</span></div>
+    </section>
+
+    <section class="construct-analysis" id="constructAnalysis" aria-label="Construct GIGABYTE analysis">
+      <div class="construct-analysis-head">
+        <h2>ConstructのGIGABYTE出現率</h2>
+        <strong id="constructGigabyteSummary">データなし</strong>
+      </div>
+      <p>Constructが選出されたクラシック抽選を母数にし、GIGABYTEとして記録されたテラーを集計します。RT106として独立記録されたGIGABYTEも同じ抽選に含めます。</p>
+      <div class="construct-instance-list" id="constructGigabyteInstances"></div>
     </section>
 
     <main>
@@ -1494,6 +1535,7 @@
   </div>
 
   <script src="../scripts/round-classifier.js"></script>
+  <script src="../scripts/construct-gigabyte-stats.js"></script>
   <script src="../scripts/round-end-sounds.js"></script>
   <script src="../scripts/achievement-engine.js"></script>
   <script>
@@ -1734,6 +1776,10 @@
       mMaps: document.getElementById("mMaps"),
       mTerrors: document.getElementById("mTerrors"),
       mWins: document.getElementById("mWins"),
+      mConstructGigabyte: document.getElementById("mConstructGigabyte"),
+      constructAnalysis: document.getElementById("constructAnalysis"),
+      constructGigabyteSummary: document.getElementById("constructGigabyteSummary"),
+      constructGigabyteInstances: document.getElementById("constructGigabyteInstances"),
       updateStatusText: document.getElementById("updateStatusText"),
       updateCurrentVersion: document.getElementById("updateCurrentVersion"),
       updateLatestVersion: document.getElementById("updateLatestVersion"),
@@ -2024,6 +2070,10 @@
       const records = [];
       let current = null;
       let recordIndex = 0;
+      let instanceIndex = 0;
+      let hasInstanceMarker = false;
+
+      const isTonInstanceEntryLine = line => /Terrors of Nowhere/i.test(line) && /(joined|entered|entering|loading|world|instance|portal)/i.test(line);
 
       const finishCurrent = () => {
         if (!current) return;
@@ -2069,6 +2119,8 @@
             errors: "",
             content: "",
             contentLength: 0,
+            instanceKey: `${sourceFileIndex}:instance:${instanceIndex}`,
+            instanceLabel: hasInstanceMarker ? `${sourceFile} — インスタンス ${instanceIndex + 1}` : sourceFile,
             raw: { logLines: [] }
           };
         }
@@ -2078,6 +2130,12 @@
       for (const line of lines) {
         if (!line.trim()) continue;
         const timestamp = line.slice(0, 19).replace(/\./g, "-").replace(" ", "T");
+        if (isTonInstanceEntryLine(line)) {
+          if (current) finishCurrent();
+          if (hasInstanceMarker) instanceIndex += 1;
+          hasInstanceMarker = true;
+          continue;
+        }
         const update = window.TonRounds.parseLogLine(line);
         if (update) {
           if (update.start && current) {
@@ -2174,6 +2232,8 @@
           sourceIndex: index,
           sourceFileIndex,
           sourceFile,
+        instanceKey: value(row.InstanceKey ?? row.instanceKey) || `${sourceFileIndex}:instance:0`,
+        instanceLabel: value(row.InstanceLabel ?? row.instanceLabel) || sourceFile,
           note: value(row.Note),
         itemName,
         timestamp: value(row.Timestamp),
@@ -3109,6 +3169,29 @@
       }).join("") : `<div class="empty">実績がまだありません</div>`;
     }
 
+    function formatConstructGigabyteRate(rate) {
+      return rate === null ? "--" : `${rate.toFixed(1)}%`;
+    }
+
+    function updateConstructGigabyteStats() {
+      const summary = window.TonConstructGigabyteStats.summarize(state.records);
+      const rate = formatConstructGigabyteRate(summary.percentage);
+      els.mConstructGigabyte.textContent = rate;
+      els.constructAnalysis.classList.toggle("hidden", state.records.length === 0);
+      els.constructGigabyteSummary.textContent = summary.opportunities
+        ? `${summary.gigabyte} / ${summary.opportunities}回 (${rate})`
+        : "Constructのクラシック記録なし";
+      els.constructGigabyteInstances.innerHTML = summary.instances.length
+        ? summary.instances.map(instance => `
+          <article class="construct-instance">
+            <b>${formatConstructGigabyteRate(instance.percentage)}</b>
+            <div>${formatNumber(instance.gigabyte)} / ${formatNumber(instance.opportunities)} 回がGIGABYTE</div>
+            <div class="construct-instance-name" title="${escapeHtml(instance.label)}">${escapeHtml(instance.label)}</div>
+          </article>
+        `).join("")
+        : `<div class="empty">該当するクラシック・Constructラウンドはありません</div>`;
+    }
+
     function updateStats() {
       const maps = new Set();
       const terrors = new Set();
@@ -3124,6 +3207,7 @@
       els.mMaps.textContent = formatNumber(maps.size);
       els.mTerrors.textContent = formatNumber(terrors.size);
       els.mWins.textContent = formatNumber(wins);
+      updateConstructGigabyteStats();
     }
 
     function render() {

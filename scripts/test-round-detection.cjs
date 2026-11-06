@@ -6,6 +6,7 @@ const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const rounds = require('./round-classifier.js');
 const roundEndSounds = require('./round-end-sounds.js');
+const constructGigabyteStats = require('./construct-gigabyte-stats.js');
 const terrorNames = require('./terror-name-resolver.js');
 const localRequire = createRequire(path.join(root, 'electron-main.js'));
 const mainCode = fs.readFileSync(path.join(root, 'electron-main.js'), 'utf8');
@@ -117,6 +118,28 @@ console.log('PASS: classification, raw IDs, lifecycle, delayed results and conse
   console.log('PASS: Punished and 8 Pages round-end sound detection and deduplication');
 }
 
+{
+  const records = [
+    {sourceFileIndex:0, sourceFile:'instance-a.json', roundType:1, mapId:2, terrorData:[{i:0,g:0}]},
+    {sourceFileIndex:0, sourceFile:'instance-a.json', roundType:1, mapId:2, terrorData:[{i:1,g:6}]},
+    {sourceFileIndex:0, sourceFile:'instance-a.json', roundType:106, mapId:2, terrorData:[]},
+    {sourceFileIndex:1, sourceFile:'instance-b.json', roundType:1, mapId:2, terrorData:[{i:0,g:0}]},
+    {sourceFileIndex:1, sourceFile:'instance-b.json', roundType:1, mapId:1, terrorData:[{i:1,g:6}]}
+  ];
+  const summary = constructGigabyteStats.summarize(records);
+  assert.equal(summary.opportunities, 4);
+  assert.equal(summary.gigabyte, 2);
+  assert.equal(summary.percentage, 50);
+  assert.deepEqual(JSON.parse(JSON.stringify(summary.instances)), [
+    {key:'source:0',label:'instance-a.json',opportunities:3,gigabyte:2,percentage:2 / 3 * 100},
+    {key:'source:1',label:'instance-b.json',opportunities:1,gigabyte:0,percentage:0}
+  ]);
+  assert.equal(constructGigabyteStats.isGigabyteTerror({roundType:1,terrorData:[{i:1,g:6}]}), true);
+  assert.equal(constructGigabyteStats.isConstructClassicOpportunity({roundType:1,mapId:2,terrorData:[]}), true);
+  assert.equal(constructGigabyteStats.isConstructClassicOpportunity({roundType:1,mapId:3,terrorData:[{i:1,g:6}]}), false);
+  console.log('PASS: Construct Classic GIGABYTE probability by imported instance');
+}
+
 function createAchievementContext(storage = new Map()) {
   const node = () => ({ classList: { add: noop }, appendChild: noop, remove: noop, style: {} });
   const window = { TonRounds: rounds, dispatchEvent: noop, setTimeout: noop };
@@ -226,10 +249,16 @@ function testRenderer() {
     assert(begin > 0 && end > begin, name);
     return inline.slice(begin, end + 6);
   }
-  const state = { liveSnapshotReceived: false, liveCurrentRecord: null, monitor: {rawLines:[]}, achievementSource:'live' };
-  const els = {achievementCurrentRound:{classList:{toggle:noop}}};
-  const context = vm.createContext({window:{TonRounds:rounds}, state, els});
-  const names = ['value','numberOrNull','formatTerrorEntry','formatTerrorMatches','normalizeLiveRecord','deriveRoundRecordFromMonitorLines','getCurrentRoundRecord','formatCurrentRoundType','formatCurrentRound','renderAchievementCurrentRound','escapeHtml','parseTonLogText','normalizeRecord','parsePlayers'];
+  const state = { liveSnapshotReceived: false, liveCurrentRecord: null, monitor: {rawLines:[]}, achievementSource:'live', records:[] };
+  const els = {
+    achievementCurrentRound:{classList:{toggle:noop}},
+    mConstructGigabyte:{textContent:''},
+    constructAnalysis:{classList:{toggle:noop}},
+    constructGigabyteSummary:{textContent:''},
+    constructGigabyteInstances:{innerHTML:''}
+  };
+  const context = vm.createContext({window:{TonRounds:rounds, TonConstructGigabyteStats:constructGigabyteStats}, state, els});
+  const names = ['value','numberOrNull','formatTerrorEntry','formatTerrorMatches','normalizeLiveRecord','deriveRoundRecordFromMonitorLines','getCurrentRoundRecord','formatCurrentRoundType','formatCurrentRound','renderAchievementCurrentRound','formatNumber','escapeHtml','parseTonLogText','normalizeRecord','parsePlayers','formatConstructGigabyteRate','updateConstructGigabyteStats'];
   vm.runInContext(names.map(getFunction).join('\n'), context);
   context.raw = {roundPhase:'active', roundType:50, note:'<img onerror=x>', terrorData:[{i:29},{i:0}], result:null, terrorDataSource:'log-slots'};
   const record = vm.runInContext('normalizeLiveRecord(raw)', context);
@@ -260,6 +289,25 @@ function testRenderer() {
   assert.equal(imported[0].roundPhase, 'ended');
   assert.equal(imported[1].roundPhase, 'active');
   assert.equal(imported[1].result, null);
+  context.instanceLog = [
+    'Joined Terrors of Nowhere instance',
+    start('Classic'),
+    'Killers have been set - 0 // Round type is Classic',
+    'Joined Terrors of Nowhere instance',
+    start('Classic'),
+    'Killers have been set - 1 // Round type is Classic'
+  ].join('\n');
+  const instances = vm.runInContext('parseTonLogText(instanceLog, "instances.log", 2)', context);
+  assert.deepEqual(JSON.parse(JSON.stringify(instances.map(item => item.instanceKey))), ['2:instance:0', '2:instance:1']);
+  assert.match(instances[1].instanceLabel, /インスタンス 2/);
+  state.records = [
+    {sourceFileIndex:0,sourceFile:'instance-a.json',roundType:1,mapId:2,terrorData:[{i:1,g:6}]},
+    {sourceFileIndex:0,sourceFile:'instance-a.json',roundType:1,mapId:2,terrorData:[{i:0,g:0}]}
+  ];
+  vm.runInContext('updateConstructGigabyteStats()', context);
+  assert.equal(els.mConstructGigabyte.textContent, '50.0%');
+  assert.equal(els.constructGigabyteSummary.textContent, '1 / 2回 (50.0%)');
+  assert.match(els.constructGigabyteInstances.innerHTML, /instance-a\.json/);
   context.save = {Note:'Actual Name',RT:6,RType:'Midnight',TD:[{i:29,g:1},{i:0},{i:2}]};
   const saved = vm.runInContext('normalizeRecord(save, 0, "test.json", 0)',context);
   assert.equal(saved.roundType, 50);
